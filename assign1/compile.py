@@ -17,6 +17,32 @@ def parse(input_program):
     return l.parse(input_program)
 
 
+def typecheck(ast):
+    # We only check one translation unit, so we skip the rest
+    skipped = ast.find_data("translation_unit")
+
+    # Variable map and function type map
+    vartype_map = {}
+    functype_map = {}
+
+    # Type check each function seperately.
+    # C type rules indicate our type must be know before it is first used
+    #
+    # Note: if not defined, assume int func() as per K&R/89 C. This was removed in C99
+    for function in ast.find_data("function"):
+        # We assume that our parsed sets always has the form of:
+        #   function (type, name, body)
+        print("====", function.children[1].value)
+        func_type = function.children[0].data
+        func_name = function.children[1].value
+        func_body = function.children[2].children[0]
+
+        functype_map[func_name] = func_type
+        print(func_type)
+        print(func_name)
+        print(func_body.pretty())
+
+
 # Main logic
 if __name__ == "__main__":
     assign1_dir = os.path.dirname(os.path.realpath(__file__))
@@ -43,6 +69,7 @@ if __name__ == "__main__":
         exit(2)
 
     if args.ast:
-        print(parsed.pretty())
+        print(list(parsed.find_data("top_level")))
+    typecheck(parsed)
     with open(args.output, "w") as output_file:
         output_file.write(str(parsed))
