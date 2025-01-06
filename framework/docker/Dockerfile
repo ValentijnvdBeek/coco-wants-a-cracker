@@ -24,5 +24,8 @@ RUN pip3 install --break-system-packages lark llvmlite
 RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-14 40
 RUN update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-14 40
 
+# Personal tools for this group
+RUN apt-get install -y neovim mg
+
 USER coco
 ENV LLVM_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer-14
