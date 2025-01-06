@@ -1,0 +1,26 @@
+files: "assign1/compile.py|assign2/.*.cpp|assign3/.*.cpp"
+fail_fast: false
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-added-large-files
+    -   id: check-merge-conflict
+    -   id: mixed-line-ending
+-   repo: https://github.com/pocc/pre-commit-hooks
+    rev: v1.3.5
+    hooks:
+    - id: clang-format
+      args: [--style=Google, -i]
+#    - id: cppcheck
+#      args: [--suppressions-list=.cppcheck-suppress,  --inline-suppr]
+#    - id: cpplint
+#      args: ["--filter=-legal/copyright,-build/include_order,-build/include_subdir,-build/c++11,-build/c++17,-readability/casting"]
+
+-  repo: https://github.com/google/yapf
+   rev: 'v0.43.0'  # Use the sha / tag you want to point at
+   hooks:
+   -   id: yapf
