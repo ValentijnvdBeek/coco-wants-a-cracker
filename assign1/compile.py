@@ -8,6 +8,15 @@ import os
 from llvmlite import ir, binding
 from lark import Lark
 
+
+def parse(input_program):
+    # Parse grammar file.
+    with open(os.path.join(assign1_dir, "fennec.lark"), "r") as f:
+        grammar_str = f.read()  # type: str
+    l = lark.Lark(grammar_str)
+    return l.parse(input_program)
+
+
 # Main logic
 if __name__ == "__main__":
     assign1_dir = os.path.dirname(os.path.realpath(__file__))
@@ -20,24 +29,20 @@ if __name__ == "__main__":
     parser.add_argument('--ir', action="store_true", help='Print the IR')
     args = parser.parse_args()
 
-    # Parse grammar file.
-    with open(os.path.join(assign1_dir, "fennec.lark"), "r") as f:
-        grammar_str = f.read()  # type: str
-    l = lark.Lark(grammar_str)
-
     # Read input.
+    input_program = None
     with open(args.input, "r") as input_file:
-        input = input_file.read()
+        input_program = input_file.read()
 
-    # TODO: Emit output to args.output
-    from pprint import pprint
+    parsed = None
     try:
-        parsed = l.parse(input)
+        parsed = parse(input_program)
     except lark.exceptions.LarkError:
         from sys import exit
         print("Cannot parse input file '%{input_file}'")
         exit(2)
 
-    pprint(parsed)
+    if args.ast:
+        print(parsed.pretty())
     with open(args.output, "w") as output_file:
         output_file.write(str(parsed))
