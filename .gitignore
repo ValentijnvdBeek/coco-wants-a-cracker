@@ -9,6 +9,9 @@
 # IDE tmps.
 .vscode
 *.user
+*~
+#*
+
 # Temp folder for scripts
 tmp
 *.swp
