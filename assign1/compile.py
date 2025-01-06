@@ -6,6 +6,7 @@ import sys
 import os
 
 from llvmlite import ir, binding
+from lark import Lark
 
 # Main logic
 if __name__ == "__main__":
@@ -29,3 +30,14 @@ if __name__ == "__main__":
         input = input_file.read()
 
     # TODO: Emit output to args.output
+    from pprint import pprint
+    try:
+        parsed = l.parse(input)
+    except lark.exceptions.LarkError:
+        from sys import exit
+        print("Cannot parse input file '%{input_file}'")
+        exit(2)
+
+    pprint(parsed)
+    with open(args.output, "w") as output_file:
+        output_file.write(str(parsed))
