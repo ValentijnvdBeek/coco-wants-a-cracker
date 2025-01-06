@@ -1,7 +1,6 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/raw_ostream.h"
-
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
 using namespace llvm;
@@ -12,22 +11,18 @@ struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
     return PreservedAnalyses::all();
   }
 };
-} // namespace
+}  // namespace
 
 // This is just boilerplate to register the pass.
 // Do do not need to modify this code.
 extern "C" LLVM_ATTRIBUTE_WEAK llvm::PassPluginLibraryInfo
-llvmGetPassPluginInfo()
-{
+llvmGetPassPluginInfo() {
   return {LLVM_PLUGIN_API_VERSION, "CocoInstCombine", LLVM_VERSION_STRING,
-          [](PassBuilder &PB)
-          {
+          [](PassBuilder &PB) {
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, FunctionPassManager &FPM,
-                   ArrayRef<PassBuilder::PipelineElement>)
-                {
-                  if (Name == "coco-instcombine")
-                  {
+                   ArrayRef<PassBuilder::PipelineElement>) {
+                  if (Name == "coco-instcombine") {
                     FPM.addPass(CocoInstCombine());
                     return true;
                   }

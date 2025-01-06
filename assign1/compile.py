@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     # Parse grammar file.
     with open(os.path.join(assign1_dir, "fennec.lark"), "r") as f:
-        grammar_str = f.read() # type: str
+        grammar_str = f.read()  # type: str
     l = lark.Lark(grammar_str)
 
     # Read input.

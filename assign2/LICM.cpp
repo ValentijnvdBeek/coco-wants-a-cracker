@@ -1,8 +1,7 @@
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/raw_ostream.h"
-
-#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
 using namespace llvm;
@@ -21,7 +20,7 @@ struct CocoLICM : PassInfoMixin<CocoLICM> {
     return PreservedAnalyses::none();
   }
 };
-} // namespace
+}  // namespace
 
 // This is just boilerplate to register the pass.
 // Do do not need to modify this code.

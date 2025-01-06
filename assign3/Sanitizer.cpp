@@ -1,9 +1,8 @@
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/raw_ostream.h"
-
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-#include "llvm/IR/IRBuilder.h"
 
 using namespace llvm;
 
@@ -13,7 +12,7 @@ struct CocoSanitizer : PassInfoMixin<CocoSanitizer> {
     return PreservedAnalyses::all();
   }
 };
-} // namespace
+}  // namespace
 
 // This is just boilerplate to register the pass.
 // You do not need to modify this code.

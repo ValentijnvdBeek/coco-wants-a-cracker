@@ -1,11 +1,9 @@
+#include "llvm/Analysis/CallGraph.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/raw_ostream.h"
-
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/Cloning.h"
-#include "llvm/Analysis/CallGraph.h"
-
 
 using namespace llvm;
 
@@ -27,7 +25,7 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
     return PreservedAnalyses::all();
   }
 };
-} // namespace
+}  // namespace
 
 // This is just boilerplate to register the pass.
 // Do do not need to modify this code.
