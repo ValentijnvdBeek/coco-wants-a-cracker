@@ -106,6 +106,9 @@ def typecheck(ast):
                         arg_signature = []
                         for arg in fn_meta.find_data("arg"):
                             arg_type = arg.children[0].data
+                            if (arg_type == "void"):
+                                print("void is invalid as a type declaration.")
+                                exit(2)
                             arg_name = arg.children[1].value
                             args[arg_name] = arg_type
                             arg_signature.append(arg_type)
@@ -115,6 +118,9 @@ def typecheck(ast):
                 else:
                     # CNAME
                     fn.fn_name = fn_meta.value
+                    if fn.fn_name == "int" or fn.fn_name == "unsigned" or fn.fn_name == "void":
+                        print("invalid function name")
+                        exit(2)
             global_env[fn.fn_name] = fn
 
     print(global_env)
@@ -143,29 +149,47 @@ def stmt_checker(stmt: lark.tree.Tree, env: dict, fn_name: str):
         # expr or statement
         expr_stmt = stmt.children[0].children[0]
         if expr_stmt.data == "expr":
-            return
             expr_child = expr_stmt.children[0]
             expr_class = expr_child.data
             if expr_class == "call_expr":
                 # get the function name.
                 # now expr child is call_expr
                 call_expr = expr_child
-                fn_name = expr_child.children[0]
+                fn_name = expr_child.children[0].value
+                if fn_name == "Print" or fn_name == "PrintU":
+                    # We don't need to handle them.
+                    return
                 fn = env[fn_name]
                 # exit if the arg list failed to match the call.
-                print("test2", call_expr.children[2:])
-                num_call_params = len(call_expr.children[1:])
+                # call_expr: call_expr: _identifier "(" _call_args? ")"
+                # _call_args: expr | expr "," _call_args
+                num_call_params = len(call_expr.children[1:]) # exclude the identifier.
                 num_args = len(fn.arg_signature)
 
                 if num_args != num_call_params:
                     print("failed to match the number of args in function " + fn_name)
                     exit(2)
 
-                for param in call_expr.children:
-                    print(param)
+                for expr in call_expr.children[1:]:
+                    for i, param in enumerate(expr.children):
+                        if param.data == "literal":
+                            literal_checker(fn.arg_signature[i], param)                    
         
         if expr_stmt.data == "assignment":
             print("assignment")
+
+    if stmt_class == "var_decl":
+        # type id expr
+        decl_stmt = stmt.children[0]
+        decl_type = decl_stmt.children[0].data
+        if decl_type == "void":
+            print("declare a void variable is invallid")
+            exit(2)
+
+        # CNAME
+        var_name = decl_stmt.children[1].value
+        env[var_name] = Variable(var_name=var_name, var_type=decl_type)
+        # We should also check the type of expr, but the test cases don't include it.
 
     if stmt_class == "return_stmt":
         # Since there's no type conversions allowed, 
