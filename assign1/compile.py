@@ -439,16 +439,21 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
 
         # print(expr_ir)
         # Now working on branches.
+        builder.cbranch(expr_ir, if_block, else_block)
+
         builder.position_at_start(if_block)
         stmt_gen(module, builder, stmt, local_env, fn_name)
 
-        builder.cbranch(expr_ir, if_block, else_block)
+        # after we generate all the statements at the if-branch,
+        # we should jump directly to the else-branch.
+        builder.branch(else_block)
 
         """
         FenneC has no else statement, so the whole program left is in the else branch.
         We should reset the position at the start of the else_block)
         """
         builder.position_at_start(else_block)
+
         return
 
     return
