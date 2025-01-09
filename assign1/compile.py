@@ -248,12 +248,13 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
     # print(type(expr))
     expr = expr_p.children[0]
     expr_class = expr.data
+    print(expr_class)
 
     if expr_class == "var_ref":
         var_name = expr.children[0]
 
         # If the type is not an ir, submit an error
-        var_ir = local_env[var_name]
+        var_ir = local_env[var_name].var_ir
         if isinstance(var_ir, Variable):
             print("Failed to get the variable ir for " + var_name)
             exit(2)
@@ -277,6 +278,17 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
         ret_val = builder.call(fn_ir, fn_args)
         return ret_val
 
+    elif expr_class == "assignment":
+        var_name = expr.children[0].value
+
+        # local var is reg (pointer), the global var is var_ir, they're different.
+        reg = local_env[var_name].var_ir
+        expr_ir = expr_builder(expr.children[1], builder, local_env, fn_name)
+
+        store_ir = builder.store(expr_ir, reg, align = 4)
+        print(store_ir)
+        return
+
     else:
         if expr_class == "add":
             # Hack the expr structure, it's the problem with the parser.lark, we need to add an expr wrapper to it.
@@ -287,7 +299,7 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
             rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
             inst_ir = builder.add(lhs_ir, rhs_ir)
 
-        elif expr_class == "sub":
+        else:
             # Hack the expr structure, it's the problem with the parser.lark, we need to add an expr wrapper to it.
             # For binop
             lhs = lark.tree.Tree(expr.data, [expr.children[0]])
@@ -295,6 +307,8 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
             lhs_ir = expr_builder(lhs, builder, local_env, fn_name)
             rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
             inst_ir = builder.sub(lhs_ir, rhs_ir)
+
+        return inst_ir
 
     print("unimplemented expr")
     exit(2)
@@ -317,26 +331,38 @@ def conditional_gen(expr, builder : ir.IRBuilder, local_env : dict, fn_name : st
             ir_inst = builder.icmp_unsigned("<", lhs_ir, rhs_ir)
 
         # print("test", ir_inst)
-        return ir_inst
 
-    if expr_class == "gt":
-        return
+    elif expr_class == "gt":
+        if literal_type == "int":
+            ir_inst = builder.icmp_signed(">", lhs_ir, rhs_ir)
+        else:
+            ir_inst = builder.icmp_unsigned(">", lhs_ir, rhs_ir)
 
-    if expr_class == "le":
-        return
+    elif expr_class == "le":
+        if literal_type == "int":
+            ir_inst = builder.icmp_signed("<=", lhs_ir, rhs_ir)
+        else:
+            ir_inst = builder.icmp_unsigned("<=", lhs_ir, rhs_ir)
 
-    if expr_class == "ge":
-        return
+    elif expr_class == "ge":
+        if literal_type == "int":
+            ir_inst = builder.icmp_signed(">=", lhs_ir, rhs_ir)
+        else:
+            ir_inst = builder.icmp_unsigned(">=", lhs_ir, rhs_ir)
 
-    if expr_class == "eq":
-        return
+    elif expr_class == "eq":
+        if literal_type == "int":
+            ir_inst = builder.icmp_signed("==", lhs_ir, rhs_ir)
+        else:
+            ir_inst = builder.icmp_unsigned("==", lhs_ir, rhs_ir)
 
-    if expr_class == "ne":
-        return
+    else:
+        if literal_type == "int":
+            ir_inst = builder.icmp_signed("!=", lhs_ir, rhs_ir)
+        else:
+            ir_inst = builder.icmp_unsigned("!=", lhs_ir, rhs_ir)
 
-    if expr_class == "sub":
-        return
-
+    return ir_inst
 
 def expr_stmt_builder(expr_stmt, builder, local_env, fn_name):
     expr = expr_stmt.children[0]
@@ -362,6 +388,23 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
         for new_stmt in inner_stmt.find_data("stmt"):
             # Be careful with this builder.
             stmt_gen(module, builder, new_stmt, new_env, fn_name)
+
+    if inner_stmt_class == "var_decl":
+        var_type = inner_stmt.children[0].data
+        var_type = get_type_from_str(var_type)
+
+        var_name = inner_stmt.children[1].value
+        expr_ir = expr_builder(inner_stmt.children[2], builder, local_env, fn_name)
+
+        # We allocate a register here.
+        reg = builder.alloca(var_type)
+        ret_val = builder.store(expr_ir, reg, align=4)
+
+        # Update our env, so later we can find the ir.
+        local_env[var_name] = Variable(var_name, var_type)
+        local_env[var_name].var_ir = reg
+
+        return ret_val
 
     if inner_stmt_class == "if_stmt":
         expr = inner_stmt.children[0]
