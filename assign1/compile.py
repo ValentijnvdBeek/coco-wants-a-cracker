@@ -6,18 +6,18 @@ import sys
 import os
 
 from llvmlite import ir, binding
-from lark import Lark
+from lark import Lark, Token
+
 
 class Function:
     # Store all the function information in this structure.
     # arg: type _identifier
     # args: [arg, arg ... ]
-    def __init__(self, fn_type : str, args : dict, name : str, body : lark.tree.Tree, arg_signature: list):
-        self.fn_type = fn_type
-        self.fn_args = args
-        self.fn_name = name
-        self.arg_signature = arg_signature
-        self.fn_body = body
+    # self.fn_type = fn_type
+    # self.fn_args = args
+    # self.fn_name = name
+    # self.arg_signature = arg_signature
+    # self.fn_body = body: function ir.
 
     def __init__(self):
         self.fn_args = {}
@@ -36,7 +36,7 @@ class Variable:
 
     def __str__(self):
         # Another debuging, yeah.
-        return self.var_type + " " + self.var_name + " = " + self.var_val
+        return self.var_type + " " + self.var_name
 
 def parse(input_program):
     # Parse grammar file.
@@ -77,7 +77,7 @@ def literal_checker(decl_type: str, literal: lark.tree.Tree):
     else:
         exit(2)
 
-def typecheck(ast):
+def typecheck(ast : lark.tree.Tree) -> dict:
     global_env = {}
 
     for top_level in ast.find_data("top_level"):
@@ -106,12 +106,12 @@ def typecheck(ast):
                         arg_signature = []
                         for arg in fn_meta.find_data("arg"):
                             arg_type = arg.children[0].data
-                            if (arg_type == "void"):
+                            if arg_type == "void":
                                 print("void is invalid as a type declaration.")
                                 exit(2)
                             arg_name = arg.children[1].value
                             args[arg_name] = arg_type
-                            arg_signature.append(arg_type)
+                            arg_signature.append(Variable(arg_type, arg_name))
 
                         fn.fn_args = args
                         fn.arg_signature = arg_signature
@@ -123,7 +123,6 @@ def typecheck(ast):
                         exit(2)
             global_env[fn.fn_name] = fn
 
-    print(global_env)
     # After we getting the global environment, we can work on the local env for each funtion.
     for function in ast.find_data("function"):
         # We simply extract the stmts out from the compound stmt.
@@ -142,6 +141,8 @@ def typecheck(ast):
         for fun_body in function.find_data("stmt"):
             # We don't copy the local_env since we need to update the types along the way.
             stmt_checker(fun_body, local_env, func_name)
+
+    return global_env
 
 def stmt_checker(stmt: lark.tree.Tree, env: dict, fn_name: str):
     stmt_class = stmt.children[0].data
@@ -173,7 +174,7 @@ def stmt_checker(stmt: lark.tree.Tree, env: dict, fn_name: str):
                 for expr in call_expr.children[1:]:
                     for i, param in enumerate(expr.children):
                         if param.data == "literal":
-                            literal_checker(fn.arg_signature[i], param)                    
+                            literal_checker(fn.arg_signature[i].var_type, param)
         
         if expr_stmt.data == "assignment":
             print("assignment")
@@ -210,26 +211,295 @@ def stmt_checker(stmt: lark.tree.Tree, env: dict, fn_name: str):
                 exit(2)
     return
 
-def expr_checker(expr: lark.tree.Tree) -> str:
-    # It checkes the correctness of the expr and return it's type.
+"""
+====== CodeGen Part ======
+TODO(Zhiyang): divide them into python modules,
+"""
+def args_builder(expr_list : list, builder : ir.IRBuilder, local_env : dict, expr_type : str) -> list:
+    ret = []
+
+    for expr in expr_list:
+        ret.append(expr_builder(expr, builder, local_env, expr_type))
+
+    return ret
+
+def get_literal_ir(expr_type, expr):
+    literal_str = extract_literal(expr_type, expr)
+    literal_type = get_type_from_str(expr_type)
+    const = ir.Constant(literal_type, literal_str)
+
+    return const
+
+def get_literal_type(expr : lark.tree.Tree) -> str:
+    # Return the type based on the provided literal.
+    for elem in expr.children:
+        if elem.type == "MINUS":
+            return "int"
+        elif elem.type == "U":
+            return "unsigned"
+        else:
+            return "int"
+
+    print("unknown literal type")
+    exit(2)
+
+def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dict, fn_name : str):
+    # Return an expr IR.
+    # print(type(expr))
+    expr = expr_p.children[0]
+    expr_class = expr.data
+
+    if expr_class == "var_ref":
+        var_name = expr.children[0]
+
+        # If the type is not an ir, submit an error
+        var_ir = local_env[var_name]
+        if isinstance(var_ir, Variable):
+            print("Failed to get the variable ir for " + var_name)
+            exit(2)
+
+        x_val = builder.load(var_ir, align=4)
+        return x_val
+
+    elif expr_class == "literal":
+        const = get_literal_ir("int", expr)
+        return const
+
+    elif expr_class == "call_expr":
+        # Identifier
+        fn_name = expr.children[0].value
+
+        expr_type = local_env[fn_name].fn_type
+
+        fn_ir = local_env[fn_name].fn_body
+        fn_args = args_builder(expr.children[1:], builder, local_env, expr_type)
+
+        ret_val = builder.call(fn_ir, fn_args)
+        return ret_val
+
+    else:
+        if expr_class == "add":
+            # Hack the expr structure, it's the problem with the parser.lark, we need to add an expr wrapper to it.
+            # For binop
+            lhs = lark.tree.Tree(expr.data, [expr.children[0]])
+            rhs = lark.tree.Tree(expr.data, [expr.children[1]])
+            lhs_ir = expr_builder(lhs, builder, local_env, fn_name)
+            rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
+            inst_ir = builder.add(lhs_ir, rhs_ir)
+
+        elif expr_class == "sub":
+            # Hack the expr structure, it's the problem with the parser.lark, we need to add an expr wrapper to it.
+            # For binop
+            lhs = lark.tree.Tree(expr.data, [expr.children[0]])
+            rhs = lark.tree.Tree(expr.data, [expr.children[1]])
+            lhs_ir = expr_builder(lhs, builder, local_env, fn_name)
+            rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
+            inst_ir = builder.sub(lhs_ir, rhs_ir)
+
+    print("unimplemented expr")
+    exit(2)
+
+def conditional_gen(expr, builder : ir.IRBuilder, local_env : dict, fn_name : str):
+    expr_class = expr.data
+    print(expr.pretty())
+
+    lhs = expr.children[0]
+    rhs = lark.tree.Tree(expr.data, [expr.children[1]])
+    lhs_ir = expr_builder(lhs, builder, local_env, fn_name)
+    rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
+    rhs_literal = expr.children[1]
+    literal_type = get_type_from_str(rhs_literal)
+    if expr_class == "lt":
+        # epxr
+        if literal_type == "int":
+            ir_inst = builder.icmp_signed("<", lhs_ir, rhs_ir)
+        else:
+            ir_inst = builder.icmp_unsigned("<", lhs_ir, rhs_ir)
+
+        # print("test", ir_inst)
+        return ir_inst
+
+    if expr_class == "gt":
+        return
+
+    if expr_class == "le":
+        return
+
+    if expr_class == "ge":
+        return
+
+    if expr_class == "eq":
+        return
+
+    if expr_class == "ne":
+        return
+
+    if expr_class == "sub":
+        return
+
+
+def expr_stmt_builder(expr_stmt, builder, local_env, fn_name):
+    expr = expr_stmt.children[0]
+    return expr_builder(expr, builder, local_env, fn_name)
+
+def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, local_env : dict, fn_name : str):
+    # Generate LLVM IR for each statement.
+    inner_stmt = stmt.children[0]
+    inner_stmt_class = stmt.children[0].data
+    if inner_stmt_class == "expr_stmt":
+        expr_stmt_ir = expr_stmt_builder(inner_stmt, builder, local_env, fn_name)
+        return
+
+    if inner_stmt_class == "return_stmt":
+        # return expr, we need to know the content of expr.
+        expr_ir = expr_builder(inner_stmt.children[0], builder, local_env, fn_name)
+        builder.ret(expr_ir)
+        return
+
+    if inner_stmt_class == "compound_stmt":
+        # compound stmt means a new env block.
+        new_env = local_env.copy()
+        for new_stmt in inner_stmt.find_data("stmt"):
+            # Be careful with this builder.
+            stmt_gen(module, builder, new_stmt, new_env, fn_name)
+
+    if inner_stmt_class == "if_stmt":
+        expr = inner_stmt.children[0]
+        stmt = inner_stmt.children[1]
+
+        # We should append block to our function for conditional branches.
+        fn_ir = local_env[fn_name].fn_body
+        if_block = fn_ir.append_basic_block()
+        else_block = fn_ir.append_basic_block()
+
+        # transform the lt to expr for mitigating our api.
+        expr_ir = conditional_gen(expr, builder, local_env, fn_name)
+
+        print(expr_ir)
+        print(module)
+
+        builder.cbranch(expr_ir, if_block, else_block)
+        # stmt_gen(module, builder, stmt, local_env, fn_name)
+        return
+
     return
 
-    # Type check each function seperately.
-    # For top-level, we have both function and variables defined in lark.
+def fn_gen(module : ir.Module, fn_ast : lark.tree.Tree, env : dict):
+    # We simply extract the stmts out from the compound stmt.
+    func_name = fn_ast.children[1].value
+    fn = env[func_name]
+    local_env = env.copy()
+    updated_vars = fn.fn_args
+    for k, v in updated_vars.items():
+        local_env[k] = Variable(v, k)
+
+    function_type = get_type_from_str(fn.fn_type)
+    function_args = []
+    for arg in fn.arg_signature:
+        function_args.append(get_type_from_str(arg.var_type))
+
+    fn_type = ir.FunctionType(function_type, function_args)
+    fn_ir = ir.Function(module, fn_type, func_name)
+    for i, arg in enumerate(fn.arg_signature):
+        fn_ir.args[i].name = arg.var_name
+
+    # add our function ir into env.
+    env[func_name].fn_body = fn_ir
+
+    # We create an entry block for each function.
+    entry_block = fn_ir.append_basic_block('entry')
+    builder = ir.IRBuilder(entry_block)
+
+    # compound statement
+    for stmt_list in fn_ast.find_data("stmt_list"):
+        # We don't copy the local_env since we need to update the types along the way.
+        for stmt in stmt_list.children:
+            stmt_gen(module, builder, stmt, local_env, func_name)
+
+    return
+
+def extract_literal(decl_type : str, literal : lark.tree.Tree) -> str:
+    # extract the number out from the literal node.
+    literal_tokens = literal.children
+    number = ""
+    if decl_type == "int":
+        if literal_tokens[0].type == "MINUS":
+            # negative number
+            number = literal_tokens[1].value
+            number = "-" + number
+        if literal_tokens[0].type == "NUMBER":
+            number = literal_tokens[0].value
+
+        return number
+
+    elif decl_type == "unsigned":
+        for t in literal_tokens:
+            if t.type == "NUMBER":
+                return t.value
+
+    print("Failed to parse the literal")
+    exit(2)
+
+def get_type_from_str(type_str : str):
+    if type_str == "int":
+        return ir.IntType(32)
+    if type_str == "unsigned":
+        return ir.IntType(32)
+
+    if type_str == "void":
+        return ir.VoidType()
+
+    # No pointer
+    return
+
+def global_gen(module : ir.Module, global_decl : lark.tree.Tree, env : dict):
+
+    decl_type_raw = global_decl.children[0].data
+    decl_value = extract_literal(decl_type_raw, global_decl.children[2])
+    decl_type = get_type_from_str(decl_type_raw)
+    decl_name = global_decl.children[1].value
+
+    x = ir.GlobalVariable(module, decl_type, decl_name)
+    x.initializer = ir.Constant(decl_type, decl_value)
+
+    # We replace the Variable Class with the variable ir.
+    env[decl_name] = x
+    return
+
+def codegen(ast : lark.tree.Tree, module_name : str, env : dict):
+    # Just simple initialization.
+    module = ir.Module(module_name)
+    module.tree = binding.get_default_triple()
+
     # print(ast.pretty())
-    # for function in ast.find_data("function"):
-    #     # We assume that our parsed sets always has the form of:
-    #     #   function (type, name, body)
-    #     print("====", function.children[1].value)
-    #     func_type = function.children[0].data
-    #     func_name = function.children[1].value
-    #     func_body = function.children[2].children[0]
 
-    #     functype_map[func_name] = func_type
-    #     print(func_type)
-    #     print(func_name)
-    #     print(func_body)
+    # Hard-coded Print and PrintU
+    print_arg_t = ir.IntType(32)
+    print_ret_t = ir.VoidType()
+    fn_type = ir.FunctionType(print_ret_t, [print_arg_t])
+    p_ir = ir.Function(module, fn_type, "Print")
+    pu_ir = ir.Function(module, fn_type, "PrintU")
 
+    env["Print"] = Function()
+    env["Print"].fn_type = "void"
+    env["Print"].fn_body = p_ir
+    env["Print"].arg_signature = [Variable("int", "")]
+
+    env["PrintU"] = Function()
+    env["PrintU"].fn_type = "void"
+    env["PrintU"].fn_body = pu_ir
+    env["PrintU"].arg_signature = [Variable("int", "")]
+
+    for top_level in ast.find_data("top_level"):
+        level_child = top_level.children[0]
+        level_class = level_child.data
+        if level_class == "global":
+            global_gen(module, level_child, env)
+        else:
+            fn_gen(module, level_child, env)
+
+    print(module)
+    return
 
 # Main logic
 if __name__ == "__main__":
@@ -259,6 +529,7 @@ if __name__ == "__main__":
     # if args.ast:
         # print(list(parsed.find_data("top_level")))
 
-    typecheck(parsed)
+    global_env = typecheck(parsed)
+    codegen(parsed, args.input.replace(".c", ".ll"), global_env)
     with open(args.output, "w") as output_file:
         output_file.write(str(parsed))
