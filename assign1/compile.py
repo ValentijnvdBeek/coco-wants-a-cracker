@@ -329,6 +329,39 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
 
             return inst_ir
 
+        elif expr_class == "mul":
+            # Hack the expr structure, it's the problem with the parser.lark, we need to add an expr wrapper to it.
+            # For binop
+            lhs = lark.tree.Tree(expr.data, [expr.children[0]])
+            rhs = lark.tree.Tree(expr.data, [expr.children[1]])
+
+            lhs_ir = load_value(expr_builder(lhs, builder, local_env, fn_name), builder)
+            rhs_ir = load_value(expr_builder(rhs, builder, local_env, fn_name), builder)
+
+            inst_ir = builder.mul(lhs_ir, rhs_ir)
+
+            return inst_ir
+
+        elif expr_class == "div":
+            # Hack the expr structure, it's the problem with the parser.lark, we need to add an expr wrapper to it.
+            # For binop
+            lhs = lark.tree.Tree(expr.data, [expr.children[0]])
+            rhs = lark.tree.Tree(expr.data, [expr.children[1]])
+
+            lhs_ir = load_value(expr_builder(lhs, builder, local_env, fn_name), builder)
+            rhs_ir = load_value(expr_builder(rhs, builder, local_env, fn_name), builder)
+
+            # No tests for Var, so just literal.
+            literal_type = get_literal_type(expr.children[0])
+
+            print(literal_type)
+            if literal_type == "int":
+                ir_inst = builder.sdiv(lhs_ir, rhs_ir)
+            else:
+                ir_inst = builder.udiv(lhs_ir, rhs_ir)
+
+            return ir_inst
+
     print("unimplemented expr")
     exit(2)
 
@@ -338,6 +371,7 @@ def conditional_gen(expr, builder : ir.IRBuilder, local_env : dict, fn_name : st
 
     lhs = expr.children[0]
     rhs = lark.tree.Tree(expr.data, [expr.children[1]])
+
     lhs_ir = expr_builder(lhs, builder, local_env, fn_name)
     rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
     rhs_literal = expr.children[1]
@@ -387,7 +421,7 @@ def expr_stmt_builder(expr_stmt, builder, local_env, fn_name):
     expr = expr_stmt.children[0]
     return expr_builder(expr, builder, local_env, fn_name)
 
-def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, local_env : dict, fn_name : str):
+def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, local_env : dict, fn_name : str, outer_block):
     # Generate LLVM IR for each statement.
     inner_stmt = stmt.children[0]
     inner_stmt_class = stmt.children[0].data
@@ -403,10 +437,16 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
 
     if inner_stmt_class == "compound_stmt":
         # compound stmt means a new env block.
+        # Every time we meet 
         new_env = local_env.copy()
-        for new_stmt in inner_stmt.find_data("stmt"):
+        for new_stmt in inner_stmt.children[0].children:
             # Be careful with this builder.
-            stmt_gen(module, builder, new_stmt, new_env, fn_name)
+            stmt_gen(module, builder, new_stmt, new_env, fn_name, outer_block)
+
+        if not builder.block.is_terminated:
+            builder.branch(outer_block)
+
+        return
 
     if inner_stmt_class == "var_decl":
         var_type = inner_stmt.children[0].data
@@ -429,32 +469,40 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
         expr = inner_stmt.children[0]
         stmt = inner_stmt.children[1]
 
-        # We should append block to our function for conditional branches.
-        fn_ir = local_env[fn_name].fn_body
-        if_block = fn_ir.append_basic_block()
-        else_block = fn_ir.append_basic_block()
-
         # transform the lt to expr for mitigating our api.
-        expr_ir = conditional_gen(expr, builder, local_env, fn_name)
+        # LLVM doesn't have this IR, so we need to handle it ourselvese.
+        if expr.children[0].data == "literal":
+            expr_ir = get_literal_ir("int", expr.children[0])
+            if int(expr_ir.constant) != 0:
+                stmt_gen(module, builder, stmt, local_env, fn_name, outer_block)
+        else:
+            # We should append block to our function for conditional branches.
+            fn_ir = local_env[fn_name].fn_body
+            if_block = fn_ir.append_basic_block()
+            else_block = fn_ir.append_basic_block()
+            expr_ir = conditional_gen(expr, builder, local_env, fn_name)
 
-        # print(expr_ir)
-        # Now working on branches.
-        builder.cbranch(expr_ir, if_block, else_block)
+            # print(expr_ir)
+            # Now working on branches.
+            builder.cbranch(expr_ir, if_block, else_block)
 
-        builder.position_at_start(if_block)
-        stmt_gen(module, builder, stmt, local_env, fn_name)
+            builder.position_at_start(if_block)
 
-        # after we generate all the statements at the if-branch,
-        # we should jump directly to the else-branch.
-        builder.branch(else_block)
+            # else_block can be used as the target to jump to.
+            stmt_gen(module, builder, stmt, local_env, fn_name, else_block)
 
-        """
-        FenneC has no else statement, so the whole program left is in the else branch.
-        We should reset the position at the start of the else_block)
-        """
-        builder.position_at_start(else_block)
+            # after we generate all the statements at the if-branch,
+            # we should jump directly to the else-branch.
+            if not if_block.is_terminated:
+                builder.branch(else_block)
 
-        return
+            """
+            FenneC has no else statement, so the whole program left is in the else branch.
+            We should reset the position at the start of the else_block)
+            """
+            builder.position_at_start(else_block)
+
+            return
 
     return
 
@@ -486,11 +534,20 @@ def fn_gen(module : ir.Module, fn_ast : lark.tree.Tree, global_env : dict):
     entry_block = fn_ir.append_basic_block('entry')
     builder = ir.IRBuilder(entry_block)
 
+    if len(fn_ast.children) == 3:
+        # No args list
+        compound_stmt = fn_ast.children[2]
+    else:
+        compound_stmt = fn_ast.children[3]
     # compound statement
-    for stmt_list in fn_ast.find_data("stmt_list"):
+    for stmt_list in compound_stmt.children:
         # We don't copy the local_env since we need to update the types along the way.
         for stmt in stmt_list.children:
-            stmt_gen(module, builder, stmt, local_env, func_name)
+            stmt_gen(module, builder, stmt, local_env, func_name, entry_block)
+
+    if fn.fn_type == "void":
+        # Generate a return statement for this function.
+        builder.ret_void()
 
     return
 
