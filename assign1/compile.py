@@ -100,6 +100,10 @@ def typecheck(ast : lark.tree.Tree) -> dict:
                 if isinstance(fn_meta, lark.tree.Tree):
                     if fn_meta.data == "int":
                         fn.fn_type = "int"
+                    elif fn_meta.data == "unsigned":
+                        fn.fn_type = "unsigned"
+                    elif fn_meta.data == "void":
+                        fn.fn_type = "void"
                     elif fn_meta.data == "compound_stmt":
                         fn.fn_body = fn_meta
                     else:
@@ -246,7 +250,6 @@ def get_literal_type(expr : lark.tree.Tree) -> str:
     exit(2)
 
 def load_value(var_ir, builder):
-    print(type(var_ir))
     if isinstance(var_ir, ir.instructions.AllocaInstr):
         return builder.load(var_ir, align=4)
     elif isinstance(var_ir, ir.GlobalVariable):
@@ -259,7 +262,6 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
     # print(type(expr))
     expr = expr_p.children[0]
     expr_class = expr.data
-    print(expr_class)
 
     if expr_class == "var_ref":
         var_name = expr.children[0]
@@ -286,7 +288,6 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
         fn_ir = local_env[fn_name].fn_body
         fn_args = args_builder(expr.children[1:], builder, local_env, expr_type)
 
-        print(fn_args)
         ret_val = builder.call(fn_ir, fn_args)
 
         return ret_val
@@ -299,7 +300,6 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
         expr_ir = expr_builder(expr.children[1], builder, local_env, fn_name)
 
         store_ir = builder.store(expr_ir, reg, align = 4)
-        print(store_ir)
         return
 
     else:
@@ -311,10 +311,6 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
 
             lhs_ir = load_value(expr_builder(lhs, builder, local_env, fn_name), builder)
             rhs_ir = load_value(expr_builder(rhs, builder, local_env, fn_name), builder)
-
-            print("test start")
-            print(type(lhs_ir))
-            print(type(rhs_ir))
 
             inst_ir = builder.add(lhs_ir, rhs_ir)
 
@@ -457,11 +453,11 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
 
     return
 
-def fn_gen(module : ir.Module, fn_ast : lark.tree.Tree, env : dict):
+def fn_gen(module : ir.Module, fn_ast : lark.tree.Tree, global_env : dict):
     # We simply extract the stmts out from the compound stmt.
     func_name = fn_ast.children[1].value
-    fn = env[func_name]
-    local_env = env.copy()
+    fn = global_env[func_name]
+    local_env = global_env.copy()
     updated_vars = fn.fn_args
     for k, v in updated_vars.items():
         local_env[k] = Variable(v, k)
@@ -479,7 +475,7 @@ def fn_gen(module : ir.Module, fn_ast : lark.tree.Tree, env : dict):
         local_env[arg.var_name].var_ir = fn_ir.args[i]
 
     # add our function ir into env.
-    env[func_name].fn_body = fn_ir
+    global_env[func_name].fn_body = fn_ir
 
     # We create an entry block for each function.
     entry_block = fn_ir.append_basic_block('entry')
@@ -548,7 +544,7 @@ def codegen(ast : lark.tree.Tree, module_name : str, env : dict):
     module = ir.Module(module_name)
     module.tree = binding.get_default_triple()
 
-    print(ast.pretty())
+    # print(ast.pretty())
 
     # Hard-coded Print and PrintU
     print_arg_t = ir.IntType(32)
@@ -575,8 +571,7 @@ def codegen(ast : lark.tree.Tree, module_name : str, env : dict):
         else:
             fn_gen(module, level_child, env)
 
-    print(module)
-    return
+    return module
 
 # Main logic
 if __name__ == "__main__":
@@ -607,6 +602,7 @@ if __name__ == "__main__":
         # print(list(parsed.find_data("top_level")))
 
     global_env = typecheck(parsed)
-    codegen(parsed, args.input.replace(".c", ".ll"), global_env)
+    llvm_file = codegen(parsed, args.input.replace(".c", ".ll"), global_env)
+
     with open(args.output, "w") as output_file:
-        output_file.write(str(parsed))
+        output_file.write(str(llvm_file))
