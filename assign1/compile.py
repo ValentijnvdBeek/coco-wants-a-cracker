@@ -5,6 +5,7 @@ import lark
 import sys
 import os
 
+from lark.tools import build_lalr
 from llvmlite import ir, binding
 from lark import Lark, Token
 
@@ -219,7 +220,8 @@ def args_builder(expr_list : list, builder : ir.IRBuilder, local_env : dict, exp
     ret = []
 
     for expr in expr_list:
-        ret.append(expr_builder(expr, builder, local_env, expr_type))
+        expr = expr_builder(expr, builder, local_env, expr_type)
+        ret.append(load_value(expr, builder))
 
     return ret
 
@@ -243,6 +245,13 @@ def get_literal_type(expr : lark.tree.Tree) -> str:
     print("unknown literal type")
     exit(2)
 
+def load_value(var_ir, builder):
+    print(type(var_ir))
+    if isinstance(var_ir, ir.instructions.AllocaInstr):
+        return builder.load(var_ir, align=4)
+    else:
+        return var_ir
+
 def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dict, fn_name : str):
     # Return an expr IR.
     # print(type(expr))
@@ -259,8 +268,8 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
             print("Failed to get the variable ir for " + var_name)
             exit(2)
 
-        x_val = builder.load(var_ir, align=4)
-        return x_val
+        # As I said, the var_ir could be many thing (Argument, GlobalVar, reg, etc...)
+        return load_value(var_ir, builder)
 
     elif expr_class == "literal":
         const = get_literal_ir("int", expr)
@@ -275,7 +284,9 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
         fn_ir = local_env[fn_name].fn_body
         fn_args = args_builder(expr.children[1:], builder, local_env, expr_type)
 
+        print(fn_args)
         ret_val = builder.call(fn_ir, fn_args)
+
         return ret_val
 
     elif expr_class == "assignment":
@@ -295,7 +306,7 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
             # For binop
             lhs = lark.tree.Tree(expr.data, [expr.children[0]])
             rhs = lark.tree.Tree(expr.data, [expr.children[1]])
-            lhs_ir = expr_builder(lhs, builder, local_env, fn_name)
+            lhs_ir = load_value(expr_builder(lhs, builder, local_env, fn_name), builder)
             rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
             inst_ir = builder.add(lhs_ir, rhs_ir)
 
@@ -304,7 +315,7 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
             # For binop
             lhs = lark.tree.Tree(expr.data, [expr.children[0]])
             rhs = lark.tree.Tree(expr.data, [expr.children[1]])
-            lhs_ir = expr_builder(lhs, builder, local_env, fn_name)
+            lhs_ir = load_value(expr_builder(lhs, builder, local_env, fn_name), builder)
             rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
             inst_ir = builder.sub(lhs_ir, rhs_ir)
 
@@ -451,7 +462,9 @@ def fn_gen(module : ir.Module, fn_ast : lark.tree.Tree, env : dict):
     fn_type = ir.FunctionType(function_type, function_args)
     fn_ir = ir.Function(module, fn_type, func_name)
     for i, arg in enumerate(fn.arg_signature):
+        # Initialize the function arguments.
         fn_ir.args[i].name = arg.var_name
+        local_env[arg.var_name].var_ir = fn_ir.args[i]
 
     # add our function ir into env.
     env[func_name].fn_body = fn_ir
@@ -513,7 +526,9 @@ def global_gen(module : ir.Module, global_decl : lark.tree.Tree, env : dict):
     x.initializer = ir.Constant(decl_type, decl_value)
 
     # We replace the Variable Class with the variable ir.
-    env[decl_name] = x
+    env[decl_name] = Variable(decl_name, decl_type_raw)
+    env[decl_name].var_ir = x
+
     return
 
 def codegen(ast : lark.tree.Tree, module_name : str, env : dict):
