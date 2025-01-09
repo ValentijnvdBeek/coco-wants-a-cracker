@@ -249,6 +249,8 @@ def load_value(var_ir, builder):
     print(type(var_ir))
     if isinstance(var_ir, ir.instructions.AllocaInstr):
         return builder.load(var_ir, align=4)
+    elif isinstance(var_ir, ir.GlobalVariable):
+        return builder.load(var_ir, align=4)
     else:
         return var_ir
 
@@ -306,20 +308,30 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
             # For binop
             lhs = lark.tree.Tree(expr.data, [expr.children[0]])
             rhs = lark.tree.Tree(expr.data, [expr.children[1]])
+
             lhs_ir = load_value(expr_builder(lhs, builder, local_env, fn_name), builder)
-            rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
+            rhs_ir = load_value(expr_builder(rhs, builder, local_env, fn_name), builder)
+
+            print("test start")
+            print(type(lhs_ir))
+            print(type(rhs_ir))
+
             inst_ir = builder.add(lhs_ir, rhs_ir)
 
-        else:
+            return inst_ir
+
+        elif expr_class == "sub":
             # Hack the expr structure, it's the problem with the parser.lark, we need to add an expr wrapper to it.
             # For binop
             lhs = lark.tree.Tree(expr.data, [expr.children[0]])
             rhs = lark.tree.Tree(expr.data, [expr.children[1]])
+
             lhs_ir = load_value(expr_builder(lhs, builder, local_env, fn_name), builder)
-            rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
+            rhs_ir = load_value(expr_builder(rhs, builder, local_env, fn_name), builder)
+
             inst_ir = builder.sub(lhs_ir, rhs_ir)
 
-        return inst_ir
+            return inst_ir
 
     print("unimplemented expr")
     exit(2)
