@@ -421,7 +421,7 @@ def expr_stmt_builder(expr_stmt, builder, local_env, fn_name):
     expr = expr_stmt.children[0]
     return expr_builder(expr, builder, local_env, fn_name)
 
-def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, local_env : dict, fn_name : str, outer_block):
+def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, local_env : dict, fn_name : str):
     # Generate LLVM IR for each statement.
     inner_stmt = stmt.children[0]
     inner_stmt_class = stmt.children[0].data
@@ -437,14 +437,12 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
 
     if inner_stmt_class == "compound_stmt":
         # compound stmt means a new env block.
-        # Every time we meet 
+        # Every time we meet a compound statement, we create a new block.
         new_env = local_env.copy()
+
         for new_stmt in inner_stmt.children[0].children:
             # Be careful with this builder.
-            stmt_gen(module, builder, new_stmt, new_env, fn_name, outer_block)
-
-        if not builder.block.is_terminated:
-            builder.branch(outer_block)
+            stmt_gen(module, builder, new_stmt, new_env, fn_name)
 
         return
 
@@ -474,7 +472,7 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
         if expr.children[0].data == "literal":
             expr_ir = get_literal_ir("int", expr.children[0])
             if int(expr_ir.constant) != 0:
-                stmt_gen(module, builder, stmt, local_env, fn_name, outer_block)
+                stmt_gen(module, builder, stmt, local_env, fn_name)
         else:
             # We should append block to our function for conditional branches.
             fn_ir = local_env[fn_name].fn_body
@@ -489,11 +487,11 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
             builder.position_at_start(if_block)
 
             # else_block can be used as the target to jump to.
-            stmt_gen(module, builder, stmt, local_env, fn_name, else_block)
+            stmt_gen(module, builder, stmt, local_env, fn_name)
 
             # after we generate all the statements at the if-branch,
             # we should jump directly to the else-branch.
-            if not if_block.is_terminated:
+            if not builder.block.is_terminated:
                 builder.branch(else_block)
 
             """
@@ -543,7 +541,7 @@ def fn_gen(module : ir.Module, fn_ast : lark.tree.Tree, global_env : dict):
     for stmt_list in compound_stmt.children:
         # We don't copy the local_env since we need to update the types along the way.
         for stmt in stmt_list.children:
-            stmt_gen(module, builder, stmt, local_env, func_name, entry_block)
+            stmt_gen(module, builder, stmt, local_env, func_name)
 
     if fn.fn_type == "void":
         # Generate a return statement for this function.
