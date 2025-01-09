@@ -8,6 +8,7 @@ import os
 from lark.tools import build_lalr
 from llvmlite import ir, binding
 from lark import Lark, Token
+from llvmlite.ir import IntType
 
 
 class Function:
@@ -263,7 +264,10 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
     expr = expr_p.children[0]
     expr_class = expr.data
 
-    if expr_class == "var_ref":
+    if expr_class == "expr":
+        return conditional_gen(expr_p, builder, local_env, fn_name)
+
+    elif expr_class == "var_ref":
         var_name = expr.children[0]
 
         # If the type is not an ir, submit an error
@@ -300,7 +304,7 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
         expr_ir = expr_builder(expr.children[1], builder, local_env, fn_name)
 
         store_ir = builder.store(expr_ir, reg, align = 4)
-        return
+        return store_ir
 
     else:
         if expr_class == "add":
@@ -354,7 +358,6 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
             # No tests for Var, so just literal.
             literal_type = get_literal_type(expr.children[0])
 
-            print(literal_type)
             if literal_type == "int":
                 ir_inst = builder.sdiv(lhs_ir, rhs_ir)
             else:
@@ -362,7 +365,7 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
 
             return ir_inst
 
-    print("unimplemented expr")
+    print("unimplemented expr", expr)
     exit(2)
 
 def conditional_gen(expr, builder : ir.IRBuilder, local_env : dict, fn_name : str):
@@ -425,6 +428,7 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
     # Generate LLVM IR for each statement.
     inner_stmt = stmt.children[0]
     inner_stmt_class = stmt.children[0].data
+
     if inner_stmt_class == "expr_stmt":
         expr_stmt_ir = expr_stmt_builder(inner_stmt, builder, local_env, fn_name)
         return
@@ -432,6 +436,10 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
     if inner_stmt_class == "return_stmt":
         # return expr, we need to know the content of expr.
         expr_ir = expr_builder(inner_stmt.children[0], builder, local_env, fn_name)
+
+        if isinstance(expr_ir, ir.instructions.ICMPInstr):
+            expr_ir = builder.zext(expr_ir, ir.IntType(32))
+
         builder.ret(expr_ir)
         return
 
@@ -502,7 +510,53 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
 
             return
 
-    return
+    if inner_stmt_class == "while_stmt":
+        expr = inner_stmt.children[0]
+        stmt = inner_stmt.children[1]
+
+        if expr.children[0].data == "literal":
+            expr_ir = get_literal_ir("int", expr.children[0])
+            if int(expr_ir.constant) == 0:
+                return
+
+        # We should append block to our function for conditional branches.
+        fn_ir = local_env[fn_name].fn_body
+
+        cond_block = fn_ir.append_basic_block()
+        body_block = fn_ir.append_basic_block()
+        end_block = fn_ir.append_basic_block()
+
+        # jump to cond_block firstly.
+        builder.branch(cond_block)
+
+        builder.position_at_start(cond_block)
+
+        expr_ir = expr_builder(expr, builder, local_env, fn_name)
+
+        # Now working on branches.
+        if expr_ir.type == IntType(32):
+            # We compare it with 0 directly.
+            expr_ir = builder.icmp_signed("!=", expr_ir, ir.Constant(IntType(32), 0))
+
+        builder.cbranch(expr_ir, body_block, end_block)
+
+        # Then we move to the body.
+        builder.position_at_start(body_block)
+        # else_block can be used as the target to jump to.
+        stmt_gen(module, builder, stmt, local_env, fn_name)
+
+        # after we generate all the statements at the if-branch,
+        # we should jump directly to the else-branch.
+        if not builder.block.is_terminated:
+            builder.branch(cond_block)
+
+        """
+        FenneC has no else statement, so the whole program left is in the else branch.
+        We should reset the position at the start of the else_block)
+        """
+        builder.position_at_start(end_block)
+
+        return
 
 def fn_gen(module : ir.Module, fn_ast : lark.tree.Tree, global_env : dict):
     # We simply extract the stmts out from the compound stmt.
@@ -603,8 +657,6 @@ def codegen(ast : lark.tree.Tree, module_name : str, env : dict):
     # Just simple initialization.
     module = ir.Module(module_name)
     module.tree = binding.get_default_triple()
-
-    # print(ast.pretty())
 
     # Hard-coded Print and PrintU
     print_arg_t = ir.IntType(32)
