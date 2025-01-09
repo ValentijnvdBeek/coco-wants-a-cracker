@@ -301,7 +301,7 @@ def expr_builder(expr_p : lark.tree.Tree, builder : ir.IRBuilder, local_env: dic
 
 def conditional_gen(expr, builder : ir.IRBuilder, local_env : dict, fn_name : str):
     expr_class = expr.data
-    print(expr.pretty())
+    # print(expr.pretty())
 
     lhs = expr.children[0]
     rhs = lark.tree.Tree(expr.data, [expr.children[1]])
@@ -375,11 +375,18 @@ def stmt_gen(module : ir.Module, builder : ir.IRBuilder, stmt : lark.tree.Tree, 
         # transform the lt to expr for mitigating our api.
         expr_ir = conditional_gen(expr, builder, local_env, fn_name)
 
-        print(expr_ir)
-        print(module)
+        # print(expr_ir)
+        # Now working on branches.
+        builder.position_at_start(if_block)
+        stmt_gen(module, builder, stmt, local_env, fn_name)
 
         builder.cbranch(expr_ir, if_block, else_block)
-        # stmt_gen(module, builder, stmt, local_env, fn_name)
+
+        """
+        FenneC has no else statement, so the whole program left is in the else branch.
+        We should reset the position at the start of the else_block)
+        """
+        builder.position_at_start(else_block)
         return
 
     return
@@ -471,7 +478,7 @@ def codegen(ast : lark.tree.Tree, module_name : str, env : dict):
     module = ir.Module(module_name)
     module.tree = binding.get_default_triple()
 
-    # print(ast.pretty())
+    print(ast.pretty())
 
     # Hard-coded Print and PrintU
     print_arg_t = ir.IntType(32)
