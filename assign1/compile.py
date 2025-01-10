@@ -240,15 +240,11 @@ def get_literal_ir(expr_type, expr):
 def get_literal_type(expr : lark.tree.Tree) -> str:
     # Return the type based on the provided literal.
     for elem in expr.children:
-        if elem.type == "MINUS":
-            return "int"
-        elif elem.type == "U":
-            return "unsigned"
-        else:
-            return "int"
+        if isinstance(elem, Token):
+            if elem.type == "U":
+                return "unsigned"
 
-    print("unknown literal type")
-    exit(2)
+    return "int"
 
 def load_value(var_ir, builder):
     if isinstance(var_ir, ir.instructions.AllocaInstr):
@@ -378,7 +374,8 @@ def conditional_gen(expr, builder : ir.IRBuilder, local_env : dict, fn_name : st
     lhs_ir = expr_builder(lhs, builder, local_env, fn_name)
     rhs_ir = expr_builder(rhs, builder, local_env, fn_name)
     rhs_literal = expr.children[1]
-    literal_type = get_type_from_str(rhs_literal)
+    literal_type = get_literal_type(rhs_literal)
+
     if expr_class == "lt":
         # epxr
         if literal_type == "int":
