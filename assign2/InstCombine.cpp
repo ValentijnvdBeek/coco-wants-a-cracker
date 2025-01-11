@@ -93,7 +93,10 @@ bool isIdentityOperation(const unsigned opcode, const uint64_t Value) {
       return Value == 1;
 
     case Instruction::And:
+    case Instruction::URem:
       return Value == UINT64_MAX;
+    case Instruction::SRem:
+      return Value == INT64_MAX;
     default:
       return false;
   }
