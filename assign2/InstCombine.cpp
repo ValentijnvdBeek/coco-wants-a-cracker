@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/raw_ostream.h"
@@ -191,6 +192,35 @@ bool replaceWithConstant(BasicBlock::iterator I) {
   return false;
 }
 
+bool reductionInStrength(IRBuilder<> &Builder, BasicBlock::iterator I) {
+  Value *ArgA = I->getOperand(0);
+  Value *ArgB = I->getOperand(1);
+
+  // We assume that the constants have already been calculated
+  // and that therefore only one side can be constant. We do
+  // require one to be constant. With two variables, you can
+  // never be sure whether it is an identity or not.
+  const bool IsLeftContant = isa<Constant>(ArgA);
+  const bool IsRightConstant = isa<Constant>(ArgB);
+  if (!IsLeftContant && !IsRightConstant) return false;
+
+  // multiplication by a power of two can be replace by a shift to left
+  const unsigned Opcode = I->getOpcode();
+  if (Opcode == Instruction::Mul && IsRightConstant) {
+    const int64_t ConstValue = dyn_cast<ConstantInt>(ArgB)->getSExtValue();
+    if (!isPowerOf2_64(ConstValue)) return false;
+
+    const int64_t PowerOfTwo = log2l(ConstValue);
+    Value *NewInstr = Builder.CreateShl(ArgA, PowerOfTwo);
+    fprintf(stderr, "[InstCombiner] Replacing %ld with a %ld left shift\n",
+            ConstValue, PowerOfTwo);
+
+    I->replaceAllUsesWith(NewInstr);
+    return true;
+  }
+
+  return false;
+}
 struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
     std::list<Instruction *> deleteInstructionQueue;
@@ -224,6 +254,12 @@ struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
             }
 
             if (replaceWithConstant(I)) {
+              deleteInstructionQueue.push_back(Instr);
+              continue;
+            }
+
+            IRBuilder<> Builder(Instr);
+            if (reductionInStrength(Builder, I)) {
               deleteInstructionQueue.push_back(Instr);
               continue;
             }
