@@ -150,7 +150,7 @@ bool replaceWithConstant(BasicBlock::iterator I) {
   // never be sure whether it is an identity or not.
   const bool IsLeftContant = isa<Constant>(ArgA);
   const bool IsRightConstant = isa<Constant>(ArgB);
-  if (!IsLeftContant || !IsRightConstant) return false;
+  if (!IsLeftContant && !IsRightConstant) return false;
 
   // division, substract and modulo are not reversible operations.
   // So we need to make sure that we only operate on the right
