@@ -76,6 +76,67 @@ bool precomputeConstantValues(BasicBlock::iterator I) {
   return true;
 }
 
+bool isIdentityOperation(const unsigned opcode, const uint64_t Value) {
+  switch (opcode) {
+    case Instruction::Add:
+    case Instruction::Sub:
+    case Instruction::Shl:
+    case Instruction::LShr:
+    case Instruction::AShr:
+    case Instruction::Or:
+    case Instruction::Xor:
+      return Value == 0;
+
+    case Instruction::Mul:
+    case Instruction::UDiv:
+    case Instruction::SDiv:
+      return Value == 1;
+
+    case Instruction::And:
+      return Value == UINT64_MAX;
+    default:
+      return false;
+  }
+}
+
+bool replaceIdentityOperations(BasicBlock::iterator I) {
+  Value *ArgA = I->getOperand(0);
+  Value *ArgB = I->getOperand(1);
+
+  // We assume that the constants have already been calculated
+  // and that therefore only one side can be constant. We do
+  // require one to be constant. With two variables, you can
+  // never be sure whether it is an identity or not.
+  const bool IsLeftContant = isa<Constant>(ArgA);
+  const bool IsRightConstant = isa<Constant>(ArgB);
+
+  if (!IsLeftContant && !IsRightConstant) return false;
+
+  // division, substract and modulo are not reversible operations.
+  // So we need to make sure that we only operate on the right
+  // hand value, otherwise we generate junk IR.
+  const unsigned Opcode = I->getOpcode();
+  if ((Opcode == Instruction::UDiv || Opcode == Instruction::SDiv ||
+       Opcode == Instruction::Sub || Opcode == Instruction::URem ||
+       Opcode == Instruction::SRem) &&
+      !IsRightConstant) {
+    return false;
+  }
+
+  // Find the constant and variable sides
+  Value *VarSide = IsLeftContant ? ArgB : ArgA;
+  Value *ConstSide = IsLeftContant ? ArgA : ArgB;
+  const int64_t Value = dyn_cast<ConstantInt>(ConstSide)->getSExtValue();
+
+  // If they are in identity operation, replace them with the value
+  if (!isIdentityOperation(I->getOpcode(), Value)) return false;
+
+  fprintf(stderr, "[InstCombiner] Replacing $val %s %ld => $val\n",
+          I->getOpcodeName(), Value);
+  I->replaceAllUsesWith(VarSide);
+  return true;
+}
+
 struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
     for (Function::iterator BB = F.begin(); BB != F.end(); BB++) {
@@ -98,7 +159,16 @@ struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
               auto NextI = std::next(I);
               I->removeFromParent();
               I = NextI;
+              continue;
             }
+
+            if (replaceIdentityOperations(I)) {
+              auto NextI = std::next(I);
+              I->removeFromParent();
+              I = NextI;
+              continue;
+            }
+
             break;
           }
         }
