@@ -140,6 +140,57 @@ bool replaceIdentityOperations(BasicBlock::iterator I) {
   return true;
 }
 
+bool replaceWithConstant(BasicBlock::iterator I) {
+  Value *ArgA = I->getOperand(0);
+  Value *ArgB = I->getOperand(1);
+
+  // We assume that the constants have already been calculated
+  // and that therefore only one side can be constant. We do
+  // require one to be constant. With two variables, you can
+  // never be sure whether it is an identity or not.
+  const bool IsLeftContant = isa<Constant>(ArgA);
+  const bool IsRightConstant = isa<Constant>(ArgB);
+  if (!IsLeftContant || !IsRightConstant) return false;
+
+  // division, substract and modulo are not reversible operations.
+  // So we need to make sure that we only operate on the right
+  // hand value, otherwise we generate junk IR.
+  const unsigned Opcode = I->getOpcode();
+  if ((Opcode == Instruction::UDiv || Opcode == Instruction::SDiv) &&
+      IsLeftContant) {
+    const int64_t ConstValue = dyn_cast<ConstantInt>(ArgA)->getSExtValue();
+    if (ConstValue != 0) return false;
+
+    fputs("[InstCombiner] Replacing 0 / $var with = 0\n", stderr);
+    I->replaceAllUsesWith(ArgA);
+    return true;
+  }
+
+  if ((Opcode == Instruction::URem || Opcode == Instruction::SRem) &&
+      IsRightConstant) {
+    const int64_t ConstValue = dyn_cast<ConstantInt>(ArgB)->getSExtValue();
+    if (ConstValue != 1) return false;
+
+    fputs("[InstCombiner] Replacing $var % 1 = 0\n", stderr);
+    Value *ZeroVal = ConstantInt::get(I->getType(), 0);
+    I->replaceAllUsesWith(ZeroVal);
+    return true;
+  }
+
+  if (Opcode == Instruction::Mul || Opcode == Instruction::And) {
+    Value *VarSide = IsLeftContant ? ArgB : ArgA;
+    Value *ConstSide = IsLeftContant ? ArgA : ArgB;
+    const int64_t Value = dyn_cast<ConstantInt>(ConstSide)->getSExtValue();
+    if (Value != 0) return false;
+
+    fputs("[InstCombiner] Replacing $var * 0 = 0\n", stderr);
+    I->replaceAllUsesWith(ConstSide);
+    return true;
+  }
+
+  return false;
+}
+
 struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
     for (Function::iterator BB = F.begin(); BB != F.end(); BB++) {
@@ -166,6 +217,13 @@ struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
             }
 
             if (replaceIdentityOperations(I)) {
+              auto NextI = std::next(I);
+              I->removeFromParent();
+              I = NextI;
+              continue;
+            }
+
+            if (replaceWithConstant(I)) {
               auto NextI = std::next(I);
               I->removeFromParent();
               I = NextI;
