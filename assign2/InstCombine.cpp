@@ -193,6 +193,8 @@ bool replaceWithConstant(BasicBlock::iterator I) {
 
 struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
+    std::list<Instruction *> deleteInstructionQueue;
+
     for (Function::iterator BB = F.begin(); BB != F.end(); BB++) {
       for (BasicBlock::iterator I = BB->begin(); I != BB->end(); I++) {
         switch (I->getOpcode()) {
@@ -209,30 +211,38 @@ struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
           case Instruction::SDiv:
           case Instruction::URem:
           case Instruction::SRem: {
+            Instruction *Instr = dyn_cast<Instruction>(I);
+
             if (precomputeConstantValues(I)) {
-              auto NextI = std::next(I);
-              I->removeFromParent();
-              I = NextI;
+              deleteInstructionQueue.push_back(Instr);
               continue;
             }
 
             if (replaceIdentityOperations(I)) {
-              auto NextI = std::next(I);
-              I->removeFromParent();
-              I = NextI;
+              deleteInstructionQueue.push_back(Instr);
               continue;
             }
 
             if (replaceWithConstant(I)) {
-              auto NextI = std::next(I);
-              I->removeFromParent();
-              I = NextI;
+              deleteInstructionQueue.push_back(Instr);
               continue;
             }
 
             break;
           }
         }
+      }
+
+      for (Instruction *Instr : deleteInstructionQueue) {
+        // Check if the instruction is already removed
+        if (!Instr) continue;
+
+        // Check if the parent is already removed
+        // This check is not done by isSafeToRemove()
+        // for some reason...
+        if (!Instr->getParent()) continue;
+
+        if (Instr->isSafeToRemove()) Instr->removeFromParent();
       }
     }
 
