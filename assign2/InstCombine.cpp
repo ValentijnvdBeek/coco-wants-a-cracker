@@ -206,12 +206,23 @@ bool reductionInStrength(IRBuilder<> &Builder, BasicBlock::iterator I) {
 
   // multiplication by a power of two can be replace by a shift to left
   const unsigned Opcode = I->getOpcode();
-  if (Opcode == Instruction::Mul && IsRightConstant) {
+  if ((Opcode == Instruction::Mul || Opcode == Instruction::UDiv ||
+       Opcode == Instruction::SDiv) &&
+      IsRightConstant) {
     const int64_t ConstValue = dyn_cast<ConstantInt>(ArgB)->getSExtValue();
+    const int64_t PowerOfTwo = log2l(ConstValue);
     if (!isPowerOf2_64(ConstValue)) return false;
 
-    const int64_t PowerOfTwo = log2l(ConstValue);
-    Value *NewInstr = Builder.CreateShl(ArgA, PowerOfTwo);
+    // We need an else-branch here because the builder inserts
+    // it directly into the source stream, so using a default
+    // value causes to add useless instructions
+    Value *NewInstr;
+    if (Opcode != Instruction::Mul) {
+      NewInstr = Builder.CreateAShr(ArgA, PowerOfTwo);
+    } else {
+      NewInstr = Builder.CreateShl(ArgA, PowerOfTwo);
+    }
+
     fprintf(stderr, "[InstCombiner] Replacing %ld with a %ld left shift\n",
             ConstValue, PowerOfTwo);
 
