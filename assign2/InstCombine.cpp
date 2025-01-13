@@ -202,36 +202,49 @@ bool reductionInStrength(IRBuilder<> &Builder, BasicBlock::iterator I) {
   // never be sure whether it is an identity or not.
   const bool IsLeftContant = isa<Constant>(ArgA);
   const bool IsRightConstant = isa<Constant>(ArgB);
-  if (!IsLeftContant && !IsRightConstant) return false;
-
-  // multiplication by a power of two can be replace by a shift to left
   const unsigned Opcode = I->getOpcode();
-  if ((Opcode == Instruction::Mul || Opcode == Instruction::UDiv ||
-       Opcode == Instruction::SDiv) &&
-      IsRightConstant) {
-    const int64_t ConstValue = dyn_cast<ConstantInt>(ArgB)->getSExtValue();
-    const int64_t PowerOfTwo = log2l(ConstValue);
-    if (!isPowerOf2_64(ConstValue)) return false;
+  if (!IsRightConstant) return false;
 
-    // We need an else-branch here because the builder inserts
-    // it directly into the source stream, so using a default
-    // value causes to add useless instructions
-    Value *NewInstr;
-    if (Opcode != Instruction::Mul) {
-      NewInstr = Builder.CreateAShr(ArgA, PowerOfTwo);
-    } else {
-      NewInstr = Builder.CreateShl(ArgA, PowerOfTwo);
-    }
-
-    fprintf(stderr, "[InstCombiner] Replacing %ld with a %ld left shift\n",
-            ConstValue, PowerOfTwo);
-
-    I->replaceAllUsesWith(NewInstr);
-    return true;
+  if (Opcode != Instruction::Mul && Opcode != Instruction::UDiv &&
+      Opcode != Instruction::SDiv && Opcode != Instruction::URem &&
+      Opcode != Instruction::SRem) {
+    return false;
   }
 
-  return false;
+  // multiplication by a power of two can be replace by a shift to left
+  const int64_t ConstValue = dyn_cast<ConstantInt>(ArgB)->getSExtValue();
+  const int64_t PowerOfTwo = log2l(ConstValue);
+
+  if (!isPowerOf2_64(ConstValue)) return false;
+
+  // We need an else-branch here because the builder inserts
+  // it directly into the source stream, so using a default
+  // value causes to add useless instructions
+  Value *NewInstr;
+  if (Opcode == Instruction::Mul) {
+    NewInstr = Builder.CreateShl(ArgA, PowerOfTwo);
+    fprintf(stderr, "[InstCombiner] Replacing x %s %ld with x << %ld\n",
+            I->getOpcodeName(), PowerOfTwo);
+
+  } else if (Opcode == Instruction::UDiv || Opcode == Instruction::SDiv) {
+    NewInstr = Builder.CreateAShr(ArgA, PowerOfTwo);
+    fprintf(stderr, "[InstCombiner] Replacing x %s %ld with x >> %ld\n",
+            I->getOpcodeName(), ConstValue, PowerOfTwo);
+
+  } else if (Opcode == Instruction::URem || Opcode == Instruction::SRem) {
+    Value *PowerMinusOne = ConstantInt::get(I->getType(), ConstValue - 1);
+    NewInstr = Builder.CreateAnd(ArgA, PowerMinusOne);
+    fprintf(stderr, "[InstCombiner] Replacing x %s %ld with x ^ %ld\n",
+            I->getOpcodeName(), PowerOfTwo - 1);
+
+  } else {
+    llvm_unreachable("[InstCombiner] Invalid opcode replacement!");
+  }
+
+  I->replaceAllUsesWith(NewInstr);
+  return true;
 }
+
 struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
     std::list<Instruction *> deleteInstructionQueue;
