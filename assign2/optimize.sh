@@ -41,5 +41,6 @@ run_pass coco-licm
 run_pass coco-adce
 run_pass coco-instcombine
 run_pass coco-inliner
+run_pass coco-instcombine
 
 cp "${LAST_OUTPUT}" "${OUTPUT}"
