@@ -248,61 +248,66 @@ bool reductionInStrength(IRBuilder<> &Builder, BasicBlock::iterator I) {
 struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
     std::list<Instruction *> deleteInstructionQueue;
+    bool FixedPoint = false;
+    while (!FixedPoint) {
+      for (Function::iterator BB = F.begin(); BB != F.end(); BB++) {
+        for (BasicBlock::iterator I = BB->begin(); I != BB->end(); I++) {
+          switch (I->getOpcode()) {
+            case Instruction::Add:
+            case Instruction::Sub:
+            case Instruction::Mul:
+            case Instruction::Shl:
+            case Instruction::LShr:
+            case Instruction::AShr:
+            case Instruction::And:
+            case Instruction::Or:
+            case Instruction::Xor:
+            case Instruction::UDiv:
+            case Instruction::SDiv:
+            case Instruction::URem:
+            case Instruction::SRem: {
+              Instruction *Instr = dyn_cast<Instruction>(I);
 
-    for (Function::iterator BB = F.begin(); BB != F.end(); BB++) {
-      for (BasicBlock::iterator I = BB->begin(); I != BB->end(); I++) {
-        switch (I->getOpcode()) {
-          case Instruction::Add:
-          case Instruction::Sub:
-          case Instruction::Mul:
-          case Instruction::Shl:
-          case Instruction::LShr:
-          case Instruction::AShr:
-          case Instruction::And:
-          case Instruction::Or:
-          case Instruction::Xor:
-          case Instruction::UDiv:
-          case Instruction::SDiv:
-          case Instruction::URem:
-          case Instruction::SRem: {
-            Instruction *Instr = dyn_cast<Instruction>(I);
+              if (precomputeConstantValues(I)) {
+                deleteInstructionQueue.push_back(Instr);
+                continue;
+              }
 
-            if (precomputeConstantValues(I)) {
-              deleteInstructionQueue.push_back(Instr);
-              continue;
+              if (replaceIdentityOperations(I)) {
+                deleteInstructionQueue.push_back(Instr);
+                continue;
+              }
+
+              if (replaceWithConstant(I)) {
+                deleteInstructionQueue.push_back(Instr);
+                continue;
+              }
+
+              IRBuilder<> Builder(Instr);
+              if (reductionInStrength(Builder, I)) {
+                deleteInstructionQueue.push_back(Instr);
+                continue;
+              }
+
+              break;
             }
-
-            if (replaceIdentityOperations(I)) {
-              deleteInstructionQueue.push_back(Instr);
-              continue;
-            }
-
-            if (replaceWithConstant(I)) {
-              deleteInstructionQueue.push_back(Instr);
-              continue;
-            }
-
-            IRBuilder<> Builder(Instr);
-            if (reductionInStrength(Builder, I)) {
-              deleteInstructionQueue.push_back(Instr);
-              continue;
-            }
-
-            break;
           }
         }
-      }
 
-      for (Instruction *Instr : deleteInstructionQueue) {
-        // Check if the instruction is already removed
-        if (!Instr) continue;
+        if (deleteInstructionQueue.size() == 0) FixedPoint = true;
 
-        // Check if the parent is already removed
-        // This check is not done by isSafeToRemove()
-        // for some reason...
-        if (!Instr->getParent()) continue;
+        for (Instruction *Instr : deleteInstructionQueue) {
+          // Check if the instruction is already removed
+          if (!Instr) continue;
 
-        if (Instr->isSafeToRemove()) Instr->removeFromParent();
+          // Check if the parent is already removed
+          // This check is not done by isSafeToRemove()
+          // for some reason...
+          if (!Instr->getParent()) continue;
+
+          if (Instr->isSafeToRemove()) Instr->removeFromParent();
+        }
+        deleteInstructionQueue.clear();
       }
     }
 
