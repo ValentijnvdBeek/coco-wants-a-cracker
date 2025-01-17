@@ -22,6 +22,63 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
     return true;
   }
 
+  DenseSet<GlobalVariable *> findGlobalVariablesInFunction(Function &F) {
+    DenseSet<GlobalVariable *> GVs;
+
+    for (BasicBlock &BB : F) {
+      for (Instruction &I : BB) {
+        for (unsigned i = 0; i < I.getNumOperands(); ++i) {
+          Value *operand = I.getOperand(i);
+
+          // Check if the operand is a GlobalVariable
+          if (auto *globalVar = llvm::dyn_cast<llvm::GlobalVariable>(operand)) {
+            GVs.insert(globalVar);
+          }
+        }
+      }
+    }
+
+    return GVs;
+  }
+
+  bool hasIntersection(const DenseSet<GlobalVariable *> &set1, const DenseSet<GlobalVariable *> &set2) {
+    for (const auto elem : set1) {
+      if (set2.find(elem) != set2.end()) {
+        return true; // Found a common element
+      }
+    }
+    return false; // No common elements
+  }
+
+  bool constFunction(Function &F) {
+    SmallVector<Instruction *> ret_insts;
+
+    for (auto &BB : F.getBasicBlockList()) {
+      for (auto &I : BB.getInstList()) {
+        if (auto ret = dyn_cast<ReturnInst>(&I)) {
+          ret_insts.push_back(&I);
+        }
+      }
+    }
+
+    if (ret_insts.size() != 1) {
+      // It doesn't return a constant directly.
+      return false;
+    }
+
+    if (ret_insts[0]->getNumOperands() == 0) {
+      // return void.
+      return false;
+    }
+
+    auto op = ret_insts[0]->getOperand(0);
+    if (isa<Constant>(op)) {
+      errs() << "[Inlining GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG!]" << "\n";
+      return true;
+    }
+    return false;
+  }
+
   unsigned getLoopSize(BasicBlock *BB) {
     unsigned InstructionCount = 0;
     for (auto &Inst : BB->getInstList()) {
@@ -41,13 +98,13 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
       auto BlockPointer = f.begin();
       for (long unsigned Index = 0; Index < BlockSize; Index++) {
         InstructCount += BlockPointer->size();
-        fprintf(stderr, "[Inliner] block %ld: %ld instructions\n", Index,
-                BlockPointer->size());
+        // fprintf(stderr, "[Inliner] block %ld: %ld instructions\n", Index,
+        //         BlockPointer->size());
         BlockPointer++;
       }
 
-      fprintf(stderr, "Function %s: blocks %ld, instructions %ld\n",
-              f.getName().data(), BlockSize, InstructCount);
+      // fprintf(stderr, "Function %s: blocks %ld, instructions %ld\n",
+      //         f.getName().data(), BlockSize, InstructCount);
       FunctionSizes[f.getName().data()] = InstructCount;
     }
 
@@ -75,8 +132,8 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
 
         auto FuncName = CalledFunction->getName().str();
         if (CalledFunction->isDeclaration()) {
-          fprintf(stderr, "[Inliner] %s is declared outside of the unit\n",
-                  FuncName);
+          // fprintf(stderr, "[Inliner] %s is declared outside of the unit\n",
+          //        FuncName);
           continue;
         }
 
@@ -86,7 +143,6 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
         // into.
         // if (FunctionSizes[FuncName] > 5) continue;
 
-        fprintf(stderr, "[Inliner] inline %s\n", FuncName);
         calls.push_back(ci);
       }
 
@@ -100,25 +156,70 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
         auto fn = ci->getFunction();
         DT.recalculate(*fn);
 
+        bool is_inlining = true;
+
         auto loopInfo = new LoopInfoBase<BasicBlock, Loop>();
         loopInfo->releaseMemory();
         loopInfo->analyze(DT);
+        Function* CalledFunction = ci->getCalledFunction();
 
         auto parentB = ci->getParent();
         if (auto L = loopInfo->getLoopFor(parentB)) {
           if (FunctionSizes[CalledFuncName] + getLoopSize(parentB) > CACHE_LINE_SIZE) {
-            continue;
+            is_inlining = false;
+          }
+
+          if (constFunction(*CalledFunction)) {
+            is_inlining = true;
           }
         } else {
           // If it's not in a loop, we should limit the size of it.
           // Seems like the grading framework won't cost the function icache refresh, so the call
           // is pretty cheap.
+
+          // TODO(Zhiyang): Check if there is any calculation uses the result of the function.
+          // If there is only printf uses it, then we shouldn't inline it.
+
+          SmallVector<Instruction *> users;
+          DenseSet<GlobalVariable *> GVsByCalleeFunc = findGlobalVariablesInFunction(*CalledFunction);
+          DenseSet<GlobalVariable *> GVsByCallerFunc = findGlobalVariablesInFunction(*ci->getFunction());
+
+          for (const auto user : ci->users()) {
+            if (auto inst = dyn_cast<Instruction>(user)) {
+              users.push_back(inst);
+              // switch (inst->getOpcode()) {
+              //   case Instruction::Call: {
+              //     is_inlining = false;
+              //   }
+              // }
+            }
+          };
+
           if (FunctionSizes[CalledFuncName] > 7) {
-            continue;
+            is_inlining = false;
+          }
+
+          if (users.size() == 1) {
+            // 1. There is only one user uses the result of the function (printf in this case).
+            // 2. No any inputs from the caller.
+            // 3. No global variables that can interact with the caller.
+            // Which means it can't be used as the optimization.
+            if (isa<CallInst>(users[0]) && CalledFunction->arg_size() == 0) {
+              if (!hasIntersection(GVsByCallerFunc, GVsByCalleeFunc)) {
+                errs() << "[Inliner] Find the func that only printf uses." << *users[0] << GVsByCalleeFunc.size() << " : " << GVsByCallerFunc.size() << "\n";
+                is_inlining = false;
+              }
+            }
+          }
+
+          if (constFunction(*CalledFunction)) {
+            is_inlining = true;
           }
         }
 
-        tryInline(*f, *ci);
+        if (is_inlining) {
+          tryInline(*f, *ci);
+        }
       }
     }
     return PreservedAnalyses::all();
