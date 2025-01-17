@@ -11,6 +11,8 @@
 using namespace llvm;
 
 namespace {
+const unsigned CACHE_LINE_SIZE = 16;
+
 struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
   bool tryInline(Function &f, CallInst &call) {
     ;
@@ -20,9 +22,17 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
     return true;
   }
 
+  unsigned getLoopSize(BasicBlock *BB) {
+    unsigned InstructionCount = 0;
+    for (auto &Inst : BB->getInstList()) {
+      ++InstructionCount;
+    }
+    return InstructionCount;
+  }
+
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
     CallGraph cg(M);
-    std::unordered_map<const char *, unsigned long> FunctionSizes;
+    std::unordered_map<std::string, unsigned long> FunctionSizes;
 
     // Get the total instruction count of the function
     for (auto &f : M.functions()) {
@@ -63,7 +73,7 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
         const Function *CalledFunction = ci->getCalledFunction();
         if (!CalledFunction) continue;
 
-        const char *FuncName = CalledFunction->getName().data();
+        auto FuncName = CalledFunction->getName().str();
         if (CalledFunction->isDeclaration()) {
           fprintf(stderr, "[Inliner] %s is declared outside of the unit\n",
                   FuncName);
@@ -74,13 +84,37 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
         // causes big regressions. Maybe try seeing if number of
         // variables is more effective? Definitely a thing to look \
         // into.
-        if (FunctionSizes[FuncName] > 5) continue;
+        // if (FunctionSizes[FuncName] > 5) continue;
 
         fprintf(stderr, "[Inliner] inline %s\n", FuncName);
         calls.push_back(ci);
       }
 
       for (auto &ci : calls) {
+        auto CalledFuncName = ci->getCalledFunction()->getName().str();
+
+        // 1. Check if this call is in a loop.
+        // 2. If it's in a loop, check if it exceeds the cache size after inlining.
+        // 3. If it suits the cache size, inline it, else continue.
+        DominatorTree DT = DominatorTree();
+        auto fn = ci->getFunction();
+        DT.recalculate(*fn);
+
+        auto loopInfo = new LoopInfoBase<BasicBlock, Loop>();
+        loopInfo->releaseMemory();
+        loopInfo->analyze(DT);
+
+        auto parentB = ci->getParent();
+        if (auto L = loopInfo->getLoopFor(parentB)) {
+          if (FunctionSizes[CalledFuncName] + getLoopSize(parentB) > CACHE_LINE_SIZE) {
+            continue;
+          }
+        }
+
+        // if (FunctionSizes[FuncName] > 5) {
+        //   continue;
+        // }
+
         tryInline(*f, *ci);
       }
     }
