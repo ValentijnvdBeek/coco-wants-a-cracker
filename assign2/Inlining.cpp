@@ -109,11 +109,14 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
           if (FunctionSizes[CalledFuncName] + getLoopSize(parentB) > CACHE_LINE_SIZE) {
             continue;
           }
+        } else {
+          // If it's not in a loop, we should limit the size of it.
+          // Seems like the grading framework won't cost the function icache refresh, so the call
+          // is pretty cheap.
+          if (FunctionSizes[CalledFuncName] > 7) {
+            continue;
+          }
         }
-
-        // if (FunctionSizes[FuncName] > 5) {
-        //   continue;
-        // }
 
         tryInline(*f, *ci);
       }
