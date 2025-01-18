@@ -180,41 +180,42 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
           // TODO(Zhiyang): Check if there is any calculation uses the result of the function.
           // If there is only printf uses it, then we shouldn't inline it.
 
-          SmallVector<Instruction *> users;
-          DenseSet<GlobalVariable *> GVsByCalleeFunc = findGlobalVariablesInFunction(*CalledFunction);
-          DenseSet<GlobalVariable *> GVsByCallerFunc = findGlobalVariablesInFunction(*ci->getFunction());
 
-          for (const auto user : ci->users()) {
-            if (auto inst = dyn_cast<Instruction>(user)) {
-              users.push_back(inst);
-              // switch (inst->getOpcode()) {
-              //   case Instruction::Call: {
-              //     is_inlining = false;
-              //   }
-              // }
-            }
-          };
+
 
           if (FunctionSizes[CalledFuncName] > 7) {
             is_inlining = false;
           }
 
-          if (users.size() == 1) {
-            // 1. There is only one user uses the result of the function (printf in this case).
-            // 2. No any inputs from the caller.
-            // 3. No global variables that can interact with the caller.
-            // Which means it can't be used as the optimization.
-            if (isa<CallInst>(users[0]) && CalledFunction->arg_size() == 0) {
-              if (!hasIntersection(GVsByCallerFunc, GVsByCalleeFunc)) {
-                errs() << "[Inliner] Find the func that only printf uses." << *users[0] << GVsByCalleeFunc.size() << " : " << GVsByCallerFunc.size() << "\n";
-                is_inlining = false;
-              }
+
+
+        }
+
+        SmallVector<Instruction *> users;
+        DenseSet<GlobalVariable *> GVsByCalleeFunc = findGlobalVariablesInFunction(*CalledFunction);
+        DenseSet<GlobalVariable *> GVsByCallerFunc = findGlobalVariablesInFunction(*ci->getFunction());
+
+        for (const auto user : ci->users()) {
+          if (auto inst = dyn_cast<Instruction>(user)) {
+            users.push_back(inst);
+          }
+        };
+
+        if (users.size() == 1) {
+          // 1. There is only one user uses the result of the function (printf in this case).
+          // 2. No any inputs from the caller.
+          // 3. No global variables that can interact with the caller.
+          // Which means it can't be used as the optimization.
+          if (isa<CallInst>(users[0]) && CalledFunction->arg_size() == 0) {
+            if (!hasIntersection(GVsByCallerFunc, GVsByCalleeFunc)) {
+              errs() << "[Inliner] Find the func that only printf uses." << *users[0] << GVsByCalleeFunc.size() << " : " << GVsByCallerFunc.size() << "\n";
+              is_inlining = false;
             }
           }
+        }
 
-          if (constFunction(*CalledFunction)) {
-            is_inlining = true;
-          }
+        if (constFunction(*CalledFunction)) {
+          is_inlining = true;
         }
 
         if (is_inlining) {
