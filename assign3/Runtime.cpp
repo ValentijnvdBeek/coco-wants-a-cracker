@@ -1,8 +1,8 @@
-#include <cstdlib>
 #include <cstdint>
-#include <string>
-#include <memory>
+#include <cstdlib>
 #include <iostream>
+#include <memory>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -15,5 +15,4 @@ namespace {
 extern "C" {
 
 // Declare your custom malloc/free functions in this scope.
-
 }
