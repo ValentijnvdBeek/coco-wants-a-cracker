@@ -19,13 +19,18 @@ clean_config = "CLEAN_CONFIG" in os.environ
 per_test_case_cap = 1
 
 def get_score_for_source(src: str) -> int:
-    output = sp.check_output([biome_path, src], timeout=grade_timeout).decode("utf-8")
+    output = sp.check_output([biome_path, src, "--timeout", str(grade_timeout)], timeout=grade_timeout).decode("utf-8")
     prefix = "SCORE:"
     for line in output.splitlines():
         if line.startswith(prefix):
             score_str = line[len(prefix) :].strip()
             return int(score_str)
 
+def get_biome_heatmap(src: str):
+    try:
+        return sp.check_output([biome_path, src, "--timeout", str(grade_timeout), "--visualize"], timeout=grade_timeout).decode("utf-8")
+    except sp.CalledProcessError as e:
+        print("Failed to get BIOME output: " + str(e))
 
 class Benchmark:
     def __init__(self, a: Assignment, name: str, source: str):
@@ -158,6 +163,9 @@ class Benchmark:
             color = COLOR_WARN
         result = f"{color}{percent_diff:.1f}%{COLOR_END} of ideal performance."
         result += f"\n      Detailed runtimes in cycles: Unopt={self.base_score}, Opt={self.measured_score}, Perfect={self.perfect_score}"
+
+        if "PROFILE_CODE" in os.environ:
+            result += get_biome_heatmap(self.opt_source)
 
         return result
 

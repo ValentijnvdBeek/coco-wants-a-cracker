@@ -192,7 +192,40 @@ bool replaceWithConstant(BasicBlock::iterator I) {
   return false;
 }
 
-bool reductionInStrength(IRBuilder<> &Builder, BasicBlock::iterator I) {
+bool reductionDivToConst(IRBuilder<> &Builder, BasicBlock::iterator It) {
+  Instruction &Inst = *It;
+  Value *ArgA = Inst.getOperand(0);
+  Value *ArgB = Inst.getOperand(1);
+
+  unsigned Opcode = Inst.getOpcode();
+  if (Opcode != Instruction::UDiv && Opcode != Instruction::SDiv) {
+    return false;
+  }
+
+  // Check if ArgA and ArgB are both LoadInst from the same pointer
+  auto *lhsLoad = dyn_cast<LoadInst>(ArgA);
+  auto *rhsLoad = dyn_cast<LoadInst>(ArgB);
+  if (!lhsLoad || !rhsLoad) {
+    return false;
+  }
+
+  // Must be loading from the same pointer
+  if (lhsLoad->getPointerOperand() != rhsLoad->getPointerOperand()) {
+    return false;
+  }
+
+  // TODO (Zhiyang): Optionally ensure there's no store in between these loads
+  //       that modifies the pointer, so the loaded value hasn't changed.
+
+  // Example: a / a => 1
+  Value *NewInstr = ConstantInt::get(lhsLoad->getType(), 1);
+
+  Inst.replaceAllUsesWith(NewInstr);
+  return true;
+}
+
+
+bool reductionDivToShift(IRBuilder<> &Builder, BasicBlock::iterator I) {
   Value *ArgA = I->getOperand(0);
   Value *ArgB = I->getOperand(1);
 
@@ -227,6 +260,10 @@ bool reductionInStrength(IRBuilder<> &Builder, BasicBlock::iterator I) {
             I->getOpcodeName(), PowerOfTwo);
 
   } else if (Opcode == Instruction::UDiv || Opcode == Instruction::SDiv) {
+    // Firstly check the cases like : a / a = 1.
+    auto lhs_inst = dyn_cast<LoadInst>(ArgA);
+    auto rhs_inst = dyn_cast<LoadInst>(ArgA);
+
     NewInstr = Builder.CreateAShr(ArgA, PowerOfTwo);
     fprintf(stderr, "[InstCombiner] Replacing x %s %ld with x >> %ld\n",
             I->getOpcodeName(), ConstValue, PowerOfTwo);
@@ -284,7 +321,12 @@ struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
               }
 
               IRBuilder<> Builder(Instr);
-              if (reductionInStrength(Builder, I)) {
+              if (reductionDivToConst(Builder, I)) {
+                deleteInstructionQueue.push_back(Instr);
+                continue;
+              }
+
+              if (reductionDivToShift(Builder, I)) {
                 deleteInstructionQueue.push_back(Instr);
                 continue;
               }
