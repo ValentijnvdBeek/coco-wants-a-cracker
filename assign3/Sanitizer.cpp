@@ -7,33 +7,34 @@
 using namespace llvm;
 
 namespace {
+
+void replaceFreeAndMalloc(Instruction &Instr) {
+  CallInst *Call = dyn_cast<CallInst>(&Instr);
+  if (Call == nullptr) return;
+
+  // Get the function of the call, skip if indirect
+  Function *Fun = Call->getCalledFunction();
+  if (Fun == nullptr) return;
+
+  StringRef name = Fun->getName();
+  if (name.compare(StringRef("free")) == 0) {
+    errs() << "Replacing " << name << "\n";
+    Fun->setName("_coco_free");
+  } else if (name.compare(StringRef("malloc")) == 0) {
+    errs() << "Replacing " << name << "\n";
+    Fun->setName("_coco_malloc");
+  } else {
+    errs() << Instr.getOpcodeName() << " " << name << "\n";
+  }
+}
+
 struct CocoSanitizer : PassInfoMixin<CocoSanitizer> {
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
     for (auto &f : M.functions()) {
-      auto BlockPointer = f.begin();
-      uint32_t BlockSize = f.size();
-      for (uint32_t Index = 0; Index < BlockSize; Index++) {
-        BasicBlock &Block = *BlockPointer;
+      for (BasicBlock &Block : f) {
         for (Instruction &Instr : Block) {
-          CallInst *Call = dyn_cast<CallInst>(&Instr);
-          if (Call == nullptr) continue;
-
-          // Get the function of the call, skip if indirect
-          Function *Fun = Call->getCalledFunction();
-          if (Fun == nullptr) continue;
-
-          StringRef name = Fun->getName();
-          if (name.compare(StringRef("free")) == 0) {
-            errs() << "Replacing " << name << "\n";
-            Fun->setName("_coco_free");
-          } else if (name.compare(StringRef("malloc")) == 0) {
-            errs() << "Replacing " << name << "\n";
-            Fun->setName("_coco_malloc");
-          } else {
-            errs() << Instr.getOpcodeName() << " " << name << "\n";
-          }
+          replaceFreeAndMalloc(Instr);
         }
-        BlockPointer++;
       }
     }
     return PreservedAnalyses::all();
