@@ -16,9 +16,9 @@ bool isTriviallyAlive(Instruction* inst) {
   if (inst->isVolatile()) {
     return true;
   }
-  // if (inst->mayWriteToMemory()) {
-  //   return true;
-  // }
+  if (inst->mayWriteToMemory()) {
+    return true;
+  }
   if (isa<CallInst>(inst)) {
     // Check if this instruction is a function call.
     return true;
@@ -84,6 +84,23 @@ struct CocoADCE : PassInfoMixin<CocoADCE> {
           inst.eraseFromParent();
 
           errs() << "[ADCE] delete instruction: " << inst.getName() << "\n";
+        }
+
+         if (auto *SI = dyn_cast<StoreInst>(&inst)) {
+          Value *ptr = SI->getPointerOperand();
+
+          if (Instruction *prev = SI->getPrevNode()) {
+            if (auto *prevInst = dyn_cast<StoreInst>(prev)) {
+              // Check if they store to the same location
+              // If they point to the same location
+              // Then the second one will overwrite it.
+              if (ptr == prevInst->getPointerOperand()) {
+                errs() << "[ADCE] mark instruction dead: " << inst << "\n";
+                // Store Instruction is special, no other instruction uses it (No SSA, it's more like a mem2reg).
+                prevInst->eraseFromParent();
+              }
+            }
+          }
         }
       }
     }

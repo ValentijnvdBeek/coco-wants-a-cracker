@@ -179,16 +179,9 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
 
           // TODO(Zhiyang): Check if there is any calculation uses the result of the function.
           // If there is only printf uses it, then we shouldn't inline it.
-
-
-
-
           if (FunctionSizes[CalledFuncName] > 7) {
             is_inlining = false;
           }
-
-
-
         }
 
         SmallVector<Instruction *> users;
