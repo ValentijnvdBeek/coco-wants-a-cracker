@@ -180,21 +180,15 @@ struct CocoInlinerPass : PassInfoMixin<CocoInlinerPass> {
           // TODO(Zhiyang): Check if there is any calculation uses the result of the function.
           // If there is only printf uses it, then we shouldn't inline it.
 
-
-
-
           if (FunctionSizes[CalledFuncName] > 7) {
             is_inlining = false;
           }
-
-
-
         }
 
         SmallVector<Instruction *> users;
         DenseSet<GlobalVariable *> GVsByCalleeFunc = findGlobalVariablesInFunction(*CalledFunction);
         DenseSet<GlobalVariable *> GVsByCallerFunc = findGlobalVariablesInFunction(*ci->getFunction());
-
+        
         for (const auto user : ci->users()) {
           if (auto inst = dyn_cast<Instruction>(user)) {
             users.push_back(inst);

@@ -192,6 +192,72 @@ bool replaceWithConstant(BasicBlock::iterator I) {
   return false;
 }
 
+bool isConstant(GlobalVariable* GV) {
+  for (User *U : GV->users()) {
+    if (auto *SI = dyn_cast<StoreInst>(U)) {
+      return false;
+    }
+
+    if (auto *GEP = dyn_cast<GetElementPtrInst>(U)) {
+      return false;
+    }
+
+    if (auto *GEP = dyn_cast<CallInst>(U)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+Instruction* constantPropagation(BasicBlock::iterator I) {
+  // Check if a computation comes from a global variable that fixed during the programing life cycle.
+  Instruction &Inst = *I;
+
+  Value *ArgA = Inst.getOperand(0);
+  Value *ArgB = Inst.getOperand(1);
+
+  if (auto Load = dyn_cast<LoadInst>(ArgA)) {
+    // propagate(Load);
+    auto ptr = Load->getPointerOperand();
+
+    if (auto GV = dyn_cast<GlobalVariable>(ptr)) {
+      if (isConstant(GV)) {
+        auto initializer = GV->getInitializer();
+
+        if (auto *CInt = dyn_cast<ConstantInt>(initializer)) {
+          int64_t Val = CInt->getSExtValue();
+          auto load_ty = Load->getType();
+          Value *NewInstr = ConstantInt::get(load_ty, Val);
+
+          Load->replaceAllUsesWith(NewInstr);
+          return Load;
+        }
+      }
+    }
+  }
+
+  if (auto Load = dyn_cast<LoadInst>(ArgB)) {
+    auto ptr = Load->getPointerOperand();
+
+    if (auto GV = dyn_cast<GlobalVariable>(ptr)) {
+      if (isConstant(GV)) {
+        auto initializer = GV->getInitializer();
+
+        if (auto *CInt = dyn_cast<ConstantInt>(initializer)) {
+          int64_t Val = CInt->getSExtValue();
+          auto load_ty = Load->getType();
+          Value *NewInstr = ConstantInt::get(load_ty, Val);
+
+          Load->replaceAllUsesWith(NewInstr);
+          return Load;
+        }
+      }
+    }
+  }
+
+  return NULL;
+}
+
 bool reductionDivToConst(IRBuilder<> &Builder, BasicBlock::iterator It) {
   Instruction &Inst = *It;
   Value *ArgA = Inst.getOperand(0);
@@ -304,6 +370,12 @@ struct CocoInstCombine : PassInfoMixin<CocoInstCombine> {
             case Instruction::URem:
             case Instruction::SRem: {
               Instruction *Instr = dyn_cast<Instruction>(I);
+
+              Instruction * RedundentLoad = constantPropagation(I);
+              if (RedundentLoad) {
+                deleteInstructionQueue.push_back(RedundentLoad);
+                continue;
+              }
 
               if (precomputeConstantValues(I)) {
                 deleteInstructionQueue.push_back(Instr);
