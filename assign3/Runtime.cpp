@@ -86,28 +86,31 @@ void _coco_free(void *ptr) {
   free((void *)memory.orig_ptr);
 }
 
-void *_coco_malloc(size_t size) {
-  uint64_t ptr = (uint64_t)malloc(size + _coco_buffer_size * 2);
-  memcpy((uint8_t *)ptr, _coco_guard_phrase, _coco_buffer_size);
-  memcpy((uint8_t *)ptr + _coco_buffer_size + size, _coco_guard_phrase,
+// Initialize the memory space with the buffer guard.
+void *_coco_alloc(const uint64_t ptr, size_t size) {
+  memcpy(reinterpret_cast<uint8_t *>(ptr), _coco_guard_phrase, _coco_buffer_size);
+  memcpy(reinterpret_cast<uint8_t *>(ptr) + _coco_buffer_size + size, _coco_guard_phrase,
          _coco_buffer_size);
 
-#ifdef _DEBUG_PRINT
-  fprintf(stderr, "adding ptr: %lu to %lu\n", ptr,
-          ptr + _coco_buffer_size * 2 + size);
-#endif
-
-  struct _coco_memory_data memory = {
-      .orig_ptr = ptr,
-      .start_ptr = ptr + _coco_buffer_size,
-      .end_ptr = ptr + _coco_buffer_size + size,
-      .size = size,
-      .allocated = true,
-  };
+  const struct _coco_memory_data memory = {
+    .orig_ptr = ptr,
+    .start_ptr = ptr + _coco_buffer_size,
+    .end_ptr = ptr + _coco_buffer_size + size,
+    .size = size,
+    .allocated = true,
+};
 
   memory_locations[memory.start_ptr] = memory;
-  return (void *)memory.start_ptr;
+  return reinterpret_cast<void *>(memory.start_ptr);
 }
+
+void *_coco_malloc(const size_t size) {
+  const uint64_t ptr = reinterpret_cast<uint64_t>(malloc(size + _coco_buffer_size * 2));
+
+  return _coco_alloc(ptr, size);
+}
+
+
 // Declare your custom malloc/free functions in this scope.
 }
 
