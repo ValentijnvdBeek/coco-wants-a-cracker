@@ -36,14 +36,20 @@ void calculatePointerAddress(Module &M, IRBuilder<> &Builder,
     return;
   }
 
-  Type *UInt64Ty = Type::getInt64Ty(M.getContext());
-  Type *VoidTy = Type::getVoidTy(M.getContext());
+  // Check the source of the store pointer, if it is on the stack we can ignore
+  // it. This is only because of the assignment text, in real programs, this is
+  // stil a bad idea.
+  Value *PointerVal = StoreInstr->getOperand(1);
+  if (dyn_cast<AllocaInst>(PointerVal) != NULL) {
+    return;
+  }
 
   // Cast the array pointer to an uint64 number. This assumes a 64-bit
   // host computer. This is needed since LLVM IR doesn't decay arrays
   // into pointers, so we need to cast it manually.
-  Value *CastedPtr =
-      Builder.CreatePointerCast(StoreInstr->getOperand(1), UInt64Ty);
+  Type *UInt64Ty = Type::getInt64Ty(M.getContext());
+  Type *VoidTy = Type::getVoidTy(M.getContext());
+  Value *CastedPtr = Builder.CreatePointerCast(PointerVal, UInt64Ty);
   Builder.CreateCall(LoadStoreCheck, {CastedPtr});
   return;
 }

@@ -43,7 +43,8 @@ void _coco_check_load_store_ptr(const uint64_t base_ptr) {
   for (const std::pair<const uint64_t, struct _coco_memory_data> &Loc :
        memory_locations) {
 #ifdef _DEBUG_PRINT
-    fprintf(stderr, "%lu < %lu = %s\n", base_ptr, Loc.first,
+    fprintf(stderr, "%lu >- %lu && %lu <= %lu = %s\n", base_ptr,
+            Loc.second.orig_ptr, base_ptr, Loc.second.end_ptr,
             (base_ptr >= Loc.second.orig_ptr && base_ptr <= Loc.second.end_ptr)
                 ? "true"
                 : "false");
@@ -72,11 +73,11 @@ void _coco_check_load_store_ptr(const uint64_t base_ptr) {
 // than our redzone, it will overflow into a large number
 #ifdef _DEBUG_PRINT
   fprintf(stderr, "Check pointers: %lu - %lu\n", target_ptr - memory->orig_ptr,
-          target_ptr - memory->end_ptr);
+          memory->end_ptr - target_ptr);
 #endif
 
   if ((target_ptr - memory->orig_ptr) <= _coco_buffer_size) exit(66);
-  if ((target_ptr - memory->end_ptr) <= _coco_buffer_size) exit(66);
+  if ((memory->end_ptr - target_ptr) <= _coco_buffer_size) exit(66);
 }
 
 void _coco_free(void *ptr) {
@@ -92,6 +93,18 @@ void *_coco_alloc(const uint64_t ptr, size_t size) {
   memcpy(reinterpret_cast<uint8_t *>(ptr) + _coco_buffer_size + size, _coco_guard_phrase,
          _coco_buffer_size);
 
+#ifdef _DEBUG_PRINT
+  fprintf(stderr, "adding ptr: %lu to %lu\n", ptr,
+          ptr + _coco_buffer_size * 2 + size);
+#endif
+
+  struct _coco_memory_data memory = {
+      .orig_ptr = ptr,
+      .start_ptr = ptr + _coco_buffer_size,
+      .end_ptr = ptr + _coco_buffer_size * 2 + size,
+      .size = size,
+      .allocated = true,
+  };
   const struct _coco_memory_data memory = {
     .orig_ptr = ptr,
     .start_ptr = ptr + _coco_buffer_size,
