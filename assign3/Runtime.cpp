@@ -73,11 +73,11 @@ void _coco_check_load_store_ptr(const uint64_t base_ptr) {
 // than our redzone, it will overflow into a large number
 #ifdef _DEBUG_PRINT
   fprintf(stderr, "Check pointers: %lu - %lu\n", target_ptr - memory->orig_ptr,
-          target_ptr - memory->end_ptr);
+          memory->end_ptr - target_ptr);
 #endif
 
   if ((target_ptr - memory->orig_ptr) <= _coco_buffer_size) exit(66);
-  if ((target_ptr - memory->end_ptr) <= _coco_buffer_size) exit(66);
+  if ((memory->end_ptr - target_ptr) <= _coco_buffer_size) exit(66);
 }
 
 void _coco_free(void *ptr) {
