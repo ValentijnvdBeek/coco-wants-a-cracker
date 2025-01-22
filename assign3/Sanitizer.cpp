@@ -31,32 +31,11 @@ void replaceFreeAndMalloc(Instruction &Instr) {
 void calculatePointerAddress(Module &M, IRBuilder<> &Builder,
                              Function *LoadStoreCheck, Instruction *Instr) {
   const DataLayout &DataLayout = M.getDataLayout();
-  GetElementPtrInst *GEPInstr = dyn_cast<GetElementPtrInst>(Instr);
-  if (GEPInstr == nullptr) {
+  StoreInst *StoreInstr = dyn_cast<StoreInst>(Instr);
+  if (StoreInstr == nullptr) {
     return;
   }
 
-  // Get the size of the resulting pointer type in bytes, we need this
-  // to calculate the offset of our pointer
-  const uint32_t AllocSize =
-      DataLayout.getTypeAllocSize(GEPInstr->getResultElementType())
-          .getFixedValue();
-  uint32_t AccumulatedValue = 0;
-
-  // Add all the various values in getelementptr together, I don't know
-  // exactly what this does. This is just a dirty hack for now to get
-  // some results
-  for (uint32_t Index = 0; Index < GEPInstr->getNumOperands(); Index++) {
-    const Value *Value = GEPInstr->getOperand(Index);
-    const ConstantInt *Offset = dyn_cast<ConstantInt>(Value);
-    if (Offset == nullptr) continue;
-
-    const uint32_t OffsetValue = Offset->getSExtValue();
-    errs() << Offset->getSExtValue() << " * " << AllocSize << ", ";
-    AccumulatedValue += OffsetValue + AllocSize;
-  }
-
-  errs() << "Acc Value" << AccumulatedValue << "\n";
   Type *UInt64Ty = Type::getInt64Ty(M.getContext());
   Type *VoidTy = Type::getVoidTy(M.getContext());
 
@@ -64,10 +43,8 @@ void calculatePointerAddress(Module &M, IRBuilder<> &Builder,
   // host computer. This is needed since LLVM IR doesn't decay arrays
   // into pointers, so we need to cast it manually.
   Value *CastedPtr =
-      Builder.CreatePointerCast(GEPInstr->getOperand(0), UInt64Ty);
-  Value *args[] = {CastedPtr,
-                   ConstantInt::get(UInt64Ty, APInt(64, AccumulatedValue))};
-  Builder.CreateCall(LoadStoreCheck, args);
+      Builder.CreatePointerCast(StoreInstr->getOperand(1), UInt64Ty);
+  Builder.CreateCall(LoadStoreCheck, {CastedPtr});
   return;
 }
 
@@ -76,8 +53,7 @@ struct CocoSanitizer : PassInfoMixin<CocoSanitizer> {
     Type *UInt64Ty = Type::getInt64Ty(M.getContext());
     Type *VoidTy = Type::getVoidTy(M.getContext());
     // Get or create the function _coco_check_load_store_ptr
-    FunctionType *funcType =
-        FunctionType::get(VoidTy, {UInt64Ty, UInt64Ty}, false);
+    FunctionType *funcType = FunctionType::get(VoidTy, {UInt64Ty}, false);
     Function *LoadStoreCheck =
         llvm::Function::Create(funcType, llvm::Function::ExternalLinkage,
                                "_coco_check_load_store_ptr", &M);
