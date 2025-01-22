@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 #define _DEBUG_MAIN
+// #define _DEBUG_PRINT
 
 struct _coco_memory_data {
   uint64_t orig_ptr;
@@ -32,22 +33,50 @@ namespace {
 
 extern "C" {
 
-void _coco_check_load_store_ptr(const uint64_t base_ptr,
-                                const uint64_t offset) {
-  const uint64_t target_ptr = base_ptr + offset;
-  fprintf(stderr, "Runtime check: %lu, %lu, %lu\n", base_ptr, offset,
-          target_ptr);
-  const struct _coco_memory_data &memory = memory_locations[target_ptr];
-  // if (!memory.allocated) return;
-  fprintf(stderr, "Data: %lu - %lu\n", offset, memory.size);
+void _coco_check_load_store_ptr(const uint64_t base_ptr) {
+  const uint64_t target_ptr = base_ptr;
+#ifdef _DEBUG_PRINT
+  fprintf(stderr, "Runtime check: %lu, %lu\n", base_ptr, target_ptr);
+#endif
+  const struct _coco_memory_data *memory = NULL;
 
-  // Target is the pointer we want, if it is higher than the start of red zone,
-  // it will becomem a number greater than > _coco_buffer_size. If it is lower
-  // than our redzone, it will overflow into a large number
+  for (const std::pair<const uint64_t, struct _coco_memory_data> &Loc :
+       memory_locations) {
+#ifdef _DEBUG_PRINT
+    fprintf(stderr, "%lu < %lu = %s\n", base_ptr, Loc.first,
+            (base_ptr >= Loc.second.orig_ptr && base_ptr <= Loc.second.end_ptr)
+                ? "true"
+                : "false");
+#endif
+    if (base_ptr >= Loc.second.orig_ptr && base_ptr <= Loc.second.end_ptr) {
+      memory = &Loc.second;
+    }
+  }
 
-  if ((target_ptr - memory.orig_ptr) < _coco_buffer_size) exit(66);
+  if (memory == NULL) {
+#ifdef _DEBUG_PRINT
+    fprintf(stderr, "Memory %lu not found\n", target_ptr);
+#endif
+    return;
+  } else {
+#ifdef _DEBUG_PRINT
+    fprintf(stderr, "Memory found: %lu - %lu - %lu\n", memory->start_ptr,
+            memory->end_ptr, memory->size);
+#endif
+  }
 
-  if ((target_ptr - memory.end_ptr) < _coco_buffer_size) exit(66);
+  if (!memory->allocated) return;
+
+// Target is the pointer we want, if it is higher than the start of red zone,
+// it will becomem a number greater than > _coco_buffer_size. If it is lower
+// than our redzone, it will overflow into a large number
+#ifdef _DEBUG_PRINT
+  fprintf(stderr, "Check pointers: %lu - %lu\n", target_ptr - memory->orig_ptr,
+          target_ptr - memory->end_ptr);
+#endif
+
+  if ((target_ptr - memory->orig_ptr) <= _coco_buffer_size) exit(66);
+  if ((target_ptr - memory->end_ptr) <= _coco_buffer_size) exit(66);
 }
 
 void _coco_free(void *ptr) {
@@ -63,8 +92,11 @@ void *_coco_malloc(size_t size) {
   memcpy((uint8_t *)ptr + _coco_buffer_size + size, _coco_guard_phrase,
          _coco_buffer_size);
 
+#ifdef _DEBUG_PRINT
   fprintf(stderr, "adding ptr: %lu to %lu\n", ptr,
           ptr + _coco_buffer_size * 2 + size);
+#endif
+
   struct _coco_memory_data memory = {
       .orig_ptr = ptr,
       .start_ptr = ptr + _coco_buffer_size,
