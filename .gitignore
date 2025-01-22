@@ -26,3 +26,5 @@ coco
 # Temp files from scripts.
 assign4/tmp.c
 assign4/tmp.c.orig
+# LLVM Build directory
+assign_backend/build
