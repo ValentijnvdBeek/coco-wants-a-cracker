@@ -101,7 +101,7 @@ void *_coco_malloc(size_t size) {
   struct _coco_memory_data memory = {
       .orig_ptr = ptr,
       .start_ptr = ptr + _coco_buffer_size,
-      .end_ptr = ptr + _coco_buffer_size + size,
+      .end_ptr = ptr + _coco_buffer_size * 2 + size,
       .size = size,
       .allocated = true,
   };
