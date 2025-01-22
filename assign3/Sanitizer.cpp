@@ -28,6 +28,49 @@ void replaceFreeAndMalloc(Instruction &Instr) {
   }
 }
 
+void calculatePointerAddress(Module &M, IRBuilder<> &Builder,
+                             Function *LoadStoreCheck, Instruction *Instr) {
+  const DataLayout &DataLayout = M.getDataLayout();
+  GetElementPtrInst *GEPInstr = dyn_cast<GetElementPtrInst>(Instr);
+  if (GEPInstr == nullptr) {
+    return;
+  }
+
+  // Get the size of the resulting pointer type in bytes, we need this
+  // to calculate the offset of our pointer
+  const uint32_t AllocSize =
+      DataLayout.getTypeAllocSize(GEPInstr->getResultElementType())
+          .getFixedValue();
+  uint32_t AccumulatedValue = 0;
+
+  // Add all the various values in getelementptr together, I don't know
+  // exactly what this does. This is just a dirty hack for now to get
+  // some results
+  for (uint32_t Index = 0; Index < GEPInstr->getNumOperands(); Index++) {
+    const Value *Value = GEPInstr->getOperand(Index);
+    const ConstantInt *Offset = dyn_cast<ConstantInt>(Value);
+    if (Offset == nullptr) continue;
+
+    const uint32_t OffsetValue = Offset->getSExtValue();
+    errs() << Offset->getSExtValue() << " * " << AllocSize << ", ";
+    AccumulatedValue += OffsetValue + AllocSize;
+  }
+
+  errs() << "Acc Value" << AccumulatedValue << "\n";
+  Type *UInt64Ty = Type::getInt64Ty(M.getContext());
+  Type *VoidTy = Type::getVoidTy(M.getContext());
+
+  // Cast the array pointer to an uint64 number. This assumes a 64-bit
+  // host computer. This is needed since LLVM IR doesn't decay arrays
+  // into pointers, so we need to cast it manually.
+  Value *CastedPtr =
+      Builder.CreatePointerCast(GEPInstr->getOperand(0), UInt64Ty);
+  Value *args[] = {CastedPtr,
+                   ConstantInt::get(UInt64Ty, APInt(64, AccumulatedValue))};
+  Builder.CreateCall(LoadStoreCheck, args);
+  return;
+}
+
 struct CocoSanitizer : PassInfoMixin<CocoSanitizer> {
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
     Type *UInt64Ty = Type::getInt64Ty(M.getContext());
@@ -47,6 +90,8 @@ struct CocoSanitizer : PassInfoMixin<CocoSanitizer> {
       for (BasicBlock &Block : f) {
         for (Instruction &Instr : Block) {
           replaceFreeAndMalloc(Instr);
+          IRBuilder<> Builder(&Instr);
+          calculatePointerAddress(M, Builder, LoadStoreCheck, &Instr);
         }
       }
     }
