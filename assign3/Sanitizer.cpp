@@ -30,6 +30,19 @@ void replaceFreeAndMalloc(Instruction &Instr) {
 
 struct CocoSanitizer : PassInfoMixin<CocoSanitizer> {
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
+    Type *UInt64Ty = Type::getInt64Ty(M.getContext());
+    Type *VoidTy = Type::getVoidTy(M.getContext());
+    // Get or create the function _coco_check_load_store_ptr
+    FunctionType *funcType =
+        FunctionType::get(VoidTy, {UInt64Ty, UInt64Ty}, false);
+    Function *LoadStoreCheck =
+        llvm::Function::Create(funcType, llvm::Function::ExternalLinkage,
+                               "_coco_check_load_store_ptr", &M);
+
+    if (LoadStoreCheck == nullptr) {
+      errs() << "!!Cannot find coco checking function!!\n";
+    }
+
     for (auto &f : M.functions()) {
       for (BasicBlock &Block : f) {
         for (Instruction &Instr : Block) {
