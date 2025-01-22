@@ -35,13 +35,19 @@ namespace {
 
 extern "C" {
 
-void _coco_check_load_store_ptr(uint64_t target_ptr) {
-  struct _coco_memory_data &memory = memory_locations[target_ptr];
-  if (!memory.allocated) return;
+void _coco_check_load_store_ptr(const uint64_t base_ptr,
+                                const uint64_t offset) {
+  const uint64_t target_ptr = base_ptr + offset;
+  fprintf(stderr, "Runtime check: %lu, %lu, %lu\n", base_ptr, offset,
+          target_ptr);
+  const struct _coco_memory_data &memory = memory_locations[target_ptr];
+  // if (!memory.allocated) return;
+  fprintf(stderr, "Data: %lu - %lu\n", offset, memory.size);
 
   // Target is the pointer we want, if it is higher than the start of red zone,
   // it will becomem a number greater than > _coco_buffer_size. If it is lower
   // than our redzone, it will overflow into a large number
+
   if ((target_ptr - memory.orig_ptr) < _coco_buffer_size) exit(66);
 
   if ((target_ptr - memory.end_ptr) < _coco_buffer_size) exit(66);
@@ -60,6 +66,8 @@ void *_coco_malloc(size_t size) {
   memcpy((uint8_t *)ptr + _coco_buffer_size + size, _coco_guard_phrase,
          _coco_buffer_size);
 
+  fprintf(stderr, "adding ptr: %lu to %lu\n", ptr,
+          ptr + _coco_buffer_size * 2 + size);
   struct _coco_memory_data memory = {
       .orig_ptr = ptr,
       .start_ptr = ptr + _coco_buffer_size,
