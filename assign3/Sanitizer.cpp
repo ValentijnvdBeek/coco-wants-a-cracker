@@ -18,13 +18,13 @@ void replaceFreeAndMalloc(Instruction &Instr) {
 
   StringRef name = Fun->getName();
   if (name.compare(StringRef("free")) == 0) {
-    errs() << "Replacing " << name << "\n";
+    //            errs() << "Replacing " << name << "\n";
     Fun->setName("_coco_free");
   } else if (name.compare(StringRef("malloc")) == 0) {
-    errs() << "Replacing " << name << "\n";
+    //            errs() << "Replacing " << name << "\n";
     Fun->setName("_coco_malloc");
   } else {
-    errs() << Instr.getOpcodeName() << " " << name << "\n";
+    //            errs() << Instr.getOpcodeName() << " " << name << "\n";
   }
 }
 
