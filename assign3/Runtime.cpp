@@ -43,7 +43,8 @@ void _coco_check_load_store_ptr(const uint64_t base_ptr) {
   for (const std::pair<const uint64_t, struct _coco_memory_data> &Loc :
        memory_locations) {
 #ifdef _DEBUG_PRINT
-    fprintf(stderr, "%lu < %lu = %s\n", base_ptr, Loc.first,
+    fprintf(stderr, "%lu >- %lu && %lu <= %lu = %s\n", base_ptr,
+            Loc.second.orig_ptr, base_ptr, Loc.second.end_ptr,
             (base_ptr >= Loc.second.orig_ptr && base_ptr <= Loc.second.end_ptr)
                 ? "true"
                 : "false");
