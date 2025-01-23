@@ -34,6 +34,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
+#include <random>
 #include <queue>
 
 using namespace llvm;
@@ -258,15 +259,25 @@ unsigned RACoco::selectOrSplit(LiveInterval &VirtReg,
   // Populate a list of physical register spill candidates.
   SmallVector<unsigned, 8> PhysRegSpillCands;
 
-  // Check for an available register in this class.
+
+  // Shuffle the register allocation order
+  std::random_device Device;
+  std::mt19937 RNG(Device());
   AllocationOrder Order(VirtReg.reg, *VRM, RegClassInfo, Matrix);
-  while (unsigned PhysReg = Order.next()) {
+  // Get the unsorted list and turn it into a vector so we can shuffle it.
+  // We can't do this on ArrayRef due to constant values in that class
+  // definition.
+  std::vector<MCPhysReg> Orders = Order.getOrder().vec();
+  std::shuffle(std::begin(Orders), std::end(Orders), RNG);
+
+  // Check for an available register in this class.
+  for (unsigned PhysReg : Orders) {
     // Check for interference in PhysReg
     switch (Matrix->checkInterference(VirtReg, PhysReg)) {
-    case LiveRegMatrix::IK_Free:
-      // PhysReg is available, allocate it.
-      return PhysReg;
-
+    case LiveRegMatrix::IK_Free: 
+        // PhysReg is available, allocate it.
+        return PhysReg;
+        
     case LiveRegMatrix::IK_VirtReg:
       // Only virtual registers in the way, we may be able to spill them.
       PhysRegSpillCands.push_back(PhysReg);
@@ -278,6 +289,7 @@ unsigned RACoco::selectOrSplit(LiveInterval &VirtReg,
     }
   }
 
+  std::shuffle(PhysRegSpillCands.begin(), PhysRegSpillCands.end(), RNG);
   // Try to spill another interfering reg with less spill weight.
   for (SmallVectorImpl<unsigned>::iterator PhysRegI = PhysRegSpillCands.begin(),
        PhysRegE = PhysRegSpillCands.end(); PhysRegI != PhysRegE; ++PhysRegI) {
@@ -294,7 +306,8 @@ unsigned RACoco::selectOrSplit(LiveInterval &VirtReg,
   LLVM_DEBUG(dbgs() << "spilling: " << VirtReg << '\n');
   if (!VirtReg.isSpillable())
     return ~0u;
-  LiveRangeEdit LRE(&VirtReg, SplitVRegs, *MF, *LIS, VRM, this, &DeadRemats);
+  LiveRangeEdit LRE(&VirtReg, SplitVRegs, *MF, *LIS,
+                    VRM, this, &DeadRemats);
   spiller().spill(LRE);
 
   // The live virtual register requesting allocation was spilled, so tell
