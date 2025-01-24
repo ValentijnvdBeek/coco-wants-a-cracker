@@ -100,7 +100,6 @@ void releaseAllocatedMemory(char* fname_ptr) {
     memory_locations[stack_addr].allocated = false;
     memory_locations[stack_addr].freed = false;
   }
-  function_stack[fname].clear();
 }
 
 void _coco_free(void *ptr) {

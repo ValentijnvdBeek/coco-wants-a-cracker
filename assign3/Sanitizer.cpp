@@ -152,6 +152,7 @@ void replaceAllocInstWithSafeAlloc(Module &M, IRBuilder<> &Builder, Instruction 
   Alloca->replaceAllUsesWith(ReturnedPtr);
 }
 
+
 void calculatePointerAddressForLoad(Module &M, IRBuilder<> &Builder,
                              Function *LoadStoreCheck, Instruction *Instr) {
   const DataLayout &DataLayout = M.getDataLayout();
