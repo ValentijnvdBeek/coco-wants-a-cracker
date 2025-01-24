@@ -14,6 +14,7 @@ struct _coco_memory_data {
   uint64_t end_ptr;
   size_t size;
   bool allocated = false;
+  bool freed = false;
 };
 
 using namespace std;
@@ -70,7 +71,10 @@ void _coco_check_load_store_ptr(const uint64_t base_ptr) {
     #endif
   }
 
-  if (!memory->allocated) return;
+  if (!memory->allocated && !memory->freed) return;
+
+  // Quarantine time.
+  if (memory->freed) exit(66);
 
 // Target is the pointer we want, if it is higher than the start of red zone,
 // it will becomem a number greater than > _coco_buffer_size. If it is lower
@@ -91,14 +95,17 @@ void releaseAllocatedMemory(char* fname_ptr) {
   string fname = fname_ptr;
   if (function_stack.find(fname) == function_stack.end()) return;;
 
-  const auto stack_list = function_stack[fname];
-
   // Mimic drops.
+  for (auto stack_addr : function_stack[fname]) {
+    memory_locations[stack_addr].allocated = false;
+    memory_locations[stack_addr].freed = false;
+  }
   function_stack[fname].clear();
 }
 
 void _coco_free(void *ptr) {
   struct _coco_memory_data &memory = memory_locations[(uint64_t)ptr];
+  memory.freed = true;
   memory.allocated = false;
   memset((void *)memory.orig_ptr, 0, _coco_buffer_size);
   free((void *)memory.orig_ptr);
@@ -120,6 +127,7 @@ void *_coco_alloc(const uint64_t ptr, size_t size) {
       .end_ptr = ptr + _coco_buffer_size * 2 + size,
       .size = size,
       .allocated = true,
+      .freed = false,
   };
 
   memory_locations[memory.start_ptr] = memory;

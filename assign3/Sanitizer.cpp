@@ -152,7 +152,33 @@ void replaceAllocInstWithSafeAlloc(Module &M, IRBuilder<> &Builder, Instruction 
   Alloca->replaceAllUsesWith(ReturnedPtr);
 }
 
-void calculatePointerAddress(Module &M, IRBuilder<> &Builder,
+void calculatePointerAddressForLoad(Module &M, IRBuilder<> &Builder,
+                             Function *LoadStoreCheck, Instruction *Instr) {
+  const DataLayout &DataLayout = M.getDataLayout();
+  LoadInst *LoadInstr = dyn_cast<LoadInst>(Instr);
+  if (LoadInstr == nullptr) {
+    return;
+  }
+
+  // Check the source of the store pointer, if it is on the stack we can ignore
+  // it. This is only because of the assignment text, in real programs, this is
+  // stil a bad idea.
+  Value *PointerVal = LoadInstr->getOperand(0);
+  if (dyn_cast<AllocaInst>(PointerVal) != NULL) {
+    return;
+  }
+
+  // Cast the array pointer to an uint64 number. This assumes a 64-bit
+  // host computer. This is needed since LLVM IR doesn't decay arrays
+  // into pointers, so we need to cast it manually.
+  Type *UInt64Ty = Type::getInt64Ty(M.getContext());
+  Type *VoidTy = Type::getVoidTy(M.getContext());
+  Value *CastedPtr = Builder.CreatePointerCast(PointerVal, UInt64Ty);
+  Builder.CreateCall(LoadStoreCheck, {CastedPtr});
+  return;
+}
+
+void calculatePointerAddressForStore(Module &M, IRBuilder<> &Builder,
                              Function *LoadStoreCheck, Instruction *Instr) {
   const DataLayout &DataLayout = M.getDataLayout();
   StoreInst *StoreInstr = dyn_cast<StoreInst>(Instr);
@@ -206,7 +232,8 @@ struct CocoSanitizer : PassInfoMixin<CocoSanitizer> {
         for (Instruction *Instr : originalInsts) {
           replaceFreeAndMalloc(*Instr);
           IRBuilder<> Builder(Instr);
-          calculatePointerAddress(M, Builder, LoadStoreCheck, Instr);
+          calculatePointerAddressForStore(M, Builder, LoadStoreCheck, Instr);
+          calculatePointerAddressForLoad(M, Builder, LoadStoreCheck, Instr);
           replaceToReleaseStackMemory(M, Builder, *Instr);
           replaceAllocInstWithSafeAlloc(M, Builder, Instr, deletionQueue);
         }
