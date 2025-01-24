@@ -55,8 +55,17 @@ void replaceToReleaseStackMemory(Module &M, IRBuilder<> &Builder, Instruction &I
 }
 
 void replaceAllocInstWithSafeAlloc(Module &M, IRBuilder<> &Builder, Instruction *Inst, SmallVector<Instruction *>& delQueue) {
+  // The general algorithm for this replacement is:
+  // 1. find all the alloca and create a larger alloca to hold the red zone.
+  // 2. call the red zone initialization function to initialize the larger allocated space,
+  // the new alloc pointer as the arg.
+  // 3. replace all the uses of old alloca (not the new alloca one) with the return function pointer.
+  // (If you replace the old Alloca with the new Alloca, the size can't be matched)
+  // 4. delete all the old Allocas.
   AllocaInst *Alloca = dyn_cast<AllocaInst>(Inst);
   if (Alloca == nullptr) return;
+
+  if (Alloca->getFunction()->isDeclaration() || Alloca->getFunction()->isIntrinsic()) return;
 
   auto array_size = Alloca->getArraySize();
   auto numType = dyn_cast<ConstantInt>(array_size);
@@ -67,6 +76,7 @@ void replaceAllocInstWithSafeAlloc(Module &M, IRBuilder<> &Builder, Instruction 
   const DataLayout &DL = M.getDataLayout();
 
   AllocaInst* newAlloca;
+  uint64_t requestedSize = 0;
 
   if (AllocatedTy->getTypeID() == Type::ArrayTyID) {
     // Get the size of the Type.
@@ -75,8 +85,8 @@ void replaceAllocInstWithSafeAlloc(Module &M, IRBuilder<> &Builder, Instruction 
 
     // The coco_buffer_size is 32 bytes that are big enough for all the types involved.
     // Like (8 * n + 32) / 8 and (32 * n + 32) / 32 are both dividable.
+    requestedSize = arraySizeInBytes * numType->getZExtValue();
     const uint64_t allocaSize = arraySizeInBytes * numType->getZExtValue() + _coco_buffer_size * 2;
-    auto allocaSizeVal = ConstantInt::get(UInt64Ty, allocaSize);
     const uint64_t newElementsNum = allocaSize / elementSizeInBytes;
 
     const auto newArray = ArrayType::get(Alloca->getAllocatedType()->getArrayElementType(), newElementsNum);
@@ -87,13 +97,14 @@ void replaceAllocInstWithSafeAlloc(Module &M, IRBuilder<> &Builder, Instruction 
     );
 
     // We need to replace all the GEPs since the array type is changed.
-    for (auto user : Alloca->users()) {
-      if (auto GEP = dyn_cast<GetElementPtrInst>(user)) {
-        GEP->setSourceElementType(newArray);
-      }
-    }
+    // for (auto user : Alloca->users()) {
+    //   if (auto GEP = dyn_cast<GetElementPtrInst>(user)) {
+    //     GEP->setSourceElementType(newArray);
+    //   }
+    // }
   } else {
     const uint64_t typeSize = DL.getTypeAllocSize(AllocatedTy);
+    requestedSize = typeSize * numType->getZExtValue();
     const uint64_t totalNewTypeSize = typeSize * numType->getZExtValue() + _coco_buffer_size * 2;
     const uint64_t totalNewNum = totalNewTypeSize / typeSize;
     // errs() << "new type" << *AllocatedTy << "\n";
@@ -106,36 +117,39 @@ void replaceAllocInstWithSafeAlloc(Module &M, IRBuilder<> &Builder, Instruction 
     );
   }
 
-  // auto fname = Alloca->getFunction()->getName();
-  // Constant *FNameIR = Builder.CreateGlobalStringPtr(fname);
+  auto newSizeVal = ConstantInt::get(UInt64Ty, requestedSize);
+  auto fname = Alloca->getFunction()->getName();
+  Constant *FNameIR = Builder.CreateGlobalStringPtr(fname);
 
-  // // Try to match the function signature.
-  // // There is no native void * in llvm, so use i8*.
-  // auto FuncSignature = FunctionType::get(
-  //   Type::getInt8PtrTy(M.getContext()),
-  //   {
-  //     Type::getInt8PtrTy(M.getContext()),
-  //     UInt64Ty,
-  //     UInt64Ty
-  //   },
-  //   false
-  // );
+  // Try to match the function signature.
+  // There is no native void * in llvm, so use i8*.
+  auto FuncSignature = FunctionType::get(
+     Type::getInt8PtrTy(M.getContext()),
+     {
+     Type::getInt8PtrTy(M.getContext()),
+     UInt64Ty,
+     UInt64Ty
+    },
+    false
+  );
 
-  // FunctionCallee initializeStackMemorySpace = M.getOrInsertFunction(
-  //   "_coco_stack_alloc", FuncSignature
-  // );
+  FunctionCallee initializeStackMemorySpace = M.getOrInsertFunction(
+    "_coco_stack_alloc", FuncSignature
+  );
 
   // Create the call to the stack alloc function.
-  Alloca->replaceAllUsesWith(newAlloca);
+  // Alloca->replaceAllUsesWith(newAlloca);
   delQueue.push_back(Alloca);
 
   // Cast the pointer to uint, otherwise we need to bitcast.
-  // Value* PtrToAddr = Builder.CreatePtrToInt(newArraySizeVal, UInt64Ty);
+  Value* PtrToAddr = Builder.CreatePtrToInt(newAlloca, UInt64Ty);
 
-  // auto Call = Builder.CreateCall(initializeStackMemorySpace, {FNameIR, PtrToAddr, allocaSizeVal});
+  auto Call = Builder.CreateCall(initializeStackMemorySpace, {FNameIR, PtrToAddr, newSizeVal});
   // Match the returned type of call with the new alloca instruction.
-  // Value *ReturnedPtr = Builder.CreateBitCast(Call, newAlloca->getType());
-  // newAlloca->replaceAllUsesWith(ReturnedPtr);
+  // The new alloca is larger, so we should keep use the old one.
+  // This is a little bit tricky, but it works.
+  Value *ReturnedPtr = Builder.CreateBitCast(Call, Alloca->getType());
+  Alloca->replaceAllUsesWith(ReturnedPtr);
 }
 
 void calculatePointerAddress(Module &M, IRBuilder<> &Builder,

@@ -89,15 +89,12 @@ void releaseAllocatedMemory(char* fname_ptr) {
   // ’Alloca’d memory is automatically released when the function returns.
   // Means we need to drop the memoryLocations after the return (after CallInst).
   string fname = fname_ptr;
-  if (function_stack.find(fname) != function_stack.end()) return;;
+  if (function_stack.find(fname) == function_stack.end()) return;;
 
   const auto stack_list = function_stack[fname];
 
-  for (auto addr : stack_list) {
-    // We don't need to free the stack memory manually, drop the mapping is ok.
-    _coco_memory_data &memory = memory_locations[addr];
-    memory.allocated = false;
-  }
+  // Mimic drops.
+  function_stack[fname].clear();
 }
 
 void _coco_free(void *ptr) {
@@ -130,11 +127,14 @@ void *_coco_alloc(const uint64_t ptr, size_t size) {
 }
 
 // Initialize the memory space with the buffer guard.
-void *_coco_stack_alloc(string fname, const uint64_t ptr, size_t size) {
+void *_coco_stack_alloc(char* fnamePtr, const uint64_t ptr, size_t size) {
+  string fname = fnamePtr;
+
   void* ret = _coco_alloc(ptr, size);
 
   // store the allocated address into the function stack list so that we can release them later.
-  function_stack[fname].push_back(static_cast<uint64_t>(ptr));
+  function_stack[fname].push_back((uint64_t) ret);
+
   return ret;
 }
 
