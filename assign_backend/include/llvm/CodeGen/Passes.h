@@ -48,6 +48,9 @@ namespace llvm {
   createMachineFunctionPrinterPass(raw_ostream &OS,
                                    const std::string &Banner ="");
 
+  // NOPInserterPass -- this pass inserts NOP instructions into the code.
+  MachineFunctionPass * createNOPInserterPass(raw_ostream &OS, const std::string & Banner = "");
+
   /// MIRPrinting pass - this pass prints out the LLVM IR into the given stream
   /// using the MIR serialization format.
   MachineFunctionPass *createPrintMIRPass(raw_ostream &OS);
@@ -214,6 +217,9 @@ namespace llvm {
 
   /// MachineFunctionPrinterPass - This pass prints out MachineInstr's.
   extern char &MachineFunctionPrinterPassID;
+
+  // NOPInserterPass -- This pass inserts NOPs into the LLVM ir
+  extern char &NOPInserterPassID;
 
   /// MIRPrintingPass - this pass prints out the LLVM IR using the MIR
   /// serialization format.

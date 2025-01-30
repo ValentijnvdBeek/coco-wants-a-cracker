@@ -302,6 +302,9 @@ public:
   /// Add a pass to print the machine function if printing is enabled.
   void addPrintPass(const std::string &Banner);
 
+  // Add a NOP inserter pass 
+  void addNOPInserterPass(const std::string &Banner);
+
   /// Add a pass to perform basic verification of the machine function if
   /// verification is enabled.
   void addVerifyPass(const std::string &Banner);

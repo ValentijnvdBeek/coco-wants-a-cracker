@@ -542,6 +542,8 @@ void TargetPassConfig::addPass(Pass *P, bool verifyAfter, bool printAfter) {
         addVerifyPass(Banner);
     }
 
+    addNOPInserterPass(Banner);
+
     // Add the passes after the pass P if there is any.
     for (auto IP : Impl->InsertedPasses) {
       if (IP.TargetPassID == PassID)
@@ -594,6 +596,10 @@ void TargetPassConfig::printAndVerify(const std::string &Banner) {
 void TargetPassConfig::addPrintPass(const std::string &Banner) {
   if (TM->shouldPrintMachineCode())
     PM->add(createMachineFunctionPrinterPass(dbgs(), Banner));
+}
+
+void TargetPassConfig::addNOPInserterPass(const std::string &Banner) {
+  PM->add(createNOPInserterPass(dbgs(), Banner));
 }
 
 void TargetPassConfig::addVerifyPass(const std::string &Banner) {
