@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This file defines the RegAllocCoco function pass, which provides a minimal
-// implementation of the basic register allocator.
+// implementation of the coco register allocator.
 //
 //===----------------------------------------------------------------------===//
 
@@ -52,8 +52,11 @@ namespace {
   };
 }
 
+// Get the number of nop from cl flag.
+static cl::opt<unsigned> NumNop("num-nop", cl::init(1), cl::Hidden);
+
 namespace {
-/// CocoRegAlloc provides a minimal implementation of the basic register allocation
+/// CocoRegAlloc provides a minimal implementation of the coco register allocation
 /// algorithm. It prioritizes live virtual registers by spill weight and spills
 /// whenever a register is unavailable. This is not practical in production but
 /// provides a useful baseline both for measuring other allocators and comparing

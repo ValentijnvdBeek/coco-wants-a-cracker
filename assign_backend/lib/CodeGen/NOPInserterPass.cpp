@@ -32,11 +32,17 @@ namespace {
 /// NOPInserterPass - This is a pass to dump the IR of a
 /// MachineFunction.
 ///
+///
+static cl::opt<unsigned>
+  NUM_NOOP("num_noop", cl::init(1), cl::Hidden);
+
 struct NOPInserter : public MachineFunctionPass {
   static char ID;
 
   raw_ostream &OS;
   const std::string Banner;
+
+  // Get parameter from cl command line.
 
   NOPInserter() : MachineFunctionPass(ID), OS(dbgs()) { }
   NOPInserter(raw_ostream &os, const std::string &banner)
@@ -71,27 +77,31 @@ struct NOPInserter : public MachineFunctionPass {
         // Ignore the emptiness case.
         continue;
       }
-      // TargetInstrInfo tells us how to insert the noop.
-      // https://llvm.org/doxygen/classllvm_1_1TargetInstrInfo.html
 
-      // Add nop before the first instruction in a function.
-      TII->insertNoop(MBB, MBB.begin());
+      // Run random number times.
+      for (uint64_t i = 0; i < (*RNG)() % NUM_NOOP; ++i) {
+        // TargetInstrInfo tells us how to insert the noop.
+        // https://llvm.org/doxygen/classllvm_1_1TargetInstrInfo.html
 
-      // Add nop before the last instruction in a function.
-      TII->insertNoop(MBB, MBB.end());
+        // Add nop before the first instruction in a function.
+        TII->insertNoop(MBB, MBB.begin());
 
-      // before and after the call site.
-      for (auto MI = MBB.begin(); MI != MBB.end(); ++MI) {
-        if (MI->isCall()) {
-          TII->insertNoop(MBB, MI);
-          // Get the next instruction after the call.
-          auto next = MI++;
+        // Add nop before the last instruction in a function.
+        TII->insertNoop(MBB, MBB.end());
 
-          TII->insertNoop(MBB, next);
+        // before and after the call site.
+        for (auto MI = MBB.begin(); MI != MBB.end(); ++MI) {
+          if (MI->isCall()) {
+            TII->insertNoop(MBB, MI);
+            // Get the next instruction after the call.
+            auto next = MI++;
+
+            TII->insertNoop(MBB, next);
+          }
         }
-      }
 
-      changed = true;
+        changed = true;
+      }
     }
 
     return changed;
