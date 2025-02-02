@@ -542,7 +542,6 @@ void TargetPassConfig::addPass(Pass *P, bool verifyAfter, bool printAfter) {
         addVerifyPass(Banner);
     }
 
-    addNOPInserterPass(Banner);
 
     // Add the passes after the pass P if there is any.
     for (auto IP : Impl->InsertedPasses) {
@@ -904,6 +903,7 @@ void TargetPassConfig::addMachinePasses() {
   if (TM->Options.EnableIPRA)
     addPass(createRegUsageInfoPropPass());
 
+  addNOPInserterPass("");
   // Run pre-ra passes.
   addPreRegAlloc();
 
