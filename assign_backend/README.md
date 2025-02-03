@@ -30,7 +30,7 @@
 
 4. Check if no-ops are inserted.
 
-* We have an `example.bc` file that can be used for direct checking. It is the `recursion.c.ll` file from `assign1`, which was converted to `.bc` using `llvm-as`.
+* We have an `example.bc` file (under the build directory) that can be used for direct checking. It is the `recursion.c.ll` file from `assign1`, which was converted to `.bc` using `llvm-as`.
 
 ## Implementation Details
 
