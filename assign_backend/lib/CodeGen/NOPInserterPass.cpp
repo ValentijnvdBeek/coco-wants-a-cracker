@@ -100,37 +100,41 @@ struct NOPInserter : public MachineFunctionPass {
 
       TII->getNoop(MCI);
 
+      // Add nop before the first instruction in a function.
+      for (uint64_t i = 0; i < (*RNG)() % NUM_NOOP; ++i) {
+        BuildMI(MBB, MBB.begin(), DL, TII->get(MCI.getOpcode()));
+      }
+
+
       // Run random number times.
       for (uint64_t i = 0; i < (*RNG)() % NUM_NOOP; ++i) {
         // TargetInstrInfo tells us how to insert the noop.
         // https://llvm.org/doxygen/classllvm_1_1TargetInstrInfo.html
         // Skip unreachable blocks (they have getNumber() == -1)
-        if (MBB.getNumber() < 0)
-          continue;
-
-        // Add nop before the first instruction in a function.
-        BuildMI(MBB, MBB.begin(), DL, TII->get(MCI.getOpcode()));
 
         // Add nop before the last instruction in a function.
-        BuildMI(MBB, MBB.end(), DL, TII->get(MCI.getOpcode()));
-
-        // before and after the call site.
         for (auto MI = MBB.begin(); MI != MBB.end(); ++MI) {
-
-          if (MI->isCall()) {
+          if (MI->isReturn()) {
             BuildMI(MBB, MI, DL, TII->get(MCI.getOpcode()));
-
-            // Get the next instruction after the call.
-            auto Next = std::next(MI);
-
-            if (Next != MBB.end()) {
-              BuildMI(MBB, Next, DL, TII->get(MCI.getOpcode()));
-            }
           }
         }
 
-        changed = true;
+        // before and after the call site.
+        for (auto MI = MBB.begin(); MI != MBB.end(); ++MI) {
+          if (MI->isCall()) {
+            BuildMI(MBB, MI, DL, TII->get(MCI.getOpcode()));
+          }
+        }
+
+        for (auto MI = MBB.begin(); MI != MBB.end(); ++MI) {
+          if (MI->isCall()) {
+            BuildMI(MBB, MI++, DL, TII->get(MCI.getOpcode()));
+          }
+        }
       }
+
+
+      changed = true;
     }
 
     return changed;
